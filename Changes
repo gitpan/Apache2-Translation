@@ -1,0 +1,8 @@
+Revision history for Perl extension Apache2::Translation.
+
+0.01  Mon Dec 12 16:36:09 2005
+	- original version; created by h2xs 1.23 with options
+		-A -b 5.8.0 -n Apache2::Translation -XS
+
+0.08  Tue Mar  7 21:49:50 CET 2006
+	- initial public version

@@ -1,0 +1,626 @@
+NAME
+    Apache2::Translation - Configuring Apache dynamically
+
+SYNOPSIS
+      LoadModule perl_module /path/to/mod_perl.so
+      PerlLoadModule Apache2::Translation
+      PerlTransHandler Apache2::Translation
+      TranslationEvalCache 1000
+      TranslationKey MyKey
+      TranslationProvider DB \
+                          database=dbi:mysql:dbname:host \
+                          user=username password=password \
+                          singleton=1 \
+                          table=tablename \
+                          key=keycolumn \
+                          uri=uricolumn \
+                          block=blockcolumn \
+                          order=ordercolumn \
+                          action=actioncolumn \
+                          cachetbl=cachetablename \
+                          cachecol=cachecolumn \
+                          cachesize=1000
+
+INSTALLATION
+     perl Makefile.PL
+     make
+     make test
+     make install
+
+DEPENDENCIES
+    mod_perl2: 2.0.2
+    recommended patch:
+    http://www.gossamer-threads.com/lists/modperl/modperl/87487#87487
+
+DESCRIPTION
+    As the name implies "Apache2::Translation" lives mostly in the URI
+    Translation Phase. It is somehow similar to "mod_rewrite" but
+    configuration statements are read at runtime, thus, making it possible
+    to reconfigure a server without restarting it.
+
+    The actual configuration statements are read by means of a *Translation
+    Provider*, a Perl class offering a particular interface, see below.
+    Currently there is one provider implemented, Apache2::Translation::DB.
+    It reads the configuration from a database via DBI.
+
+  An Example
+    Let's begin with an example. Given some database table:
+
+     id  key    uri      blk ord action
+      1  front  :PRE:    0   0   Cond: $HOSTNAME !~ /^(?:www\.)xyz\.(?:com|de)$/
+      2  front  :PRE:    0   1   Redirect: 'http://xyz.com'.$URI, 301
+      3  front  :PRE:    1   0   Do: $ctx->{lang}='en'
+      4  front  :PRE:    1   1   Cond: $HOSTNAME =~ /de$/
+      5  front  :PRE:    1   2   Do: $ctx->{lang}='de'
+      6  front  /static  0   0   File: $DOCROOT.'/'.$ctx->{lang}.$MATCHED_PATH_INFO
+      7  front  /appl1   0   0   Proxy: 'http://backend/'.$ctx->{lang}.$URI
+      8  front  /appl2   0   0   Proxy: 'http://backend/'.$URI.'?l='.$ctx->{lang}
+      9  front  /        0   0   Config: ['AuthName "secret"'], ['AuthType Basic']
+     10  back   :PRE:    0   0   Cond: $r->connection->remote_ip ne '127.0.0.1'
+     11  back   :PRE:    0   1   Error: 403, 'Forbidden by Apache2::Translation(11)'
+     12  back   /appl1   0   0   PerlHandler: 'My::Application1'
+     13  back   /appl2   0   0   PerlHandler: 'My::Application2'
+
+    The "id" column in this table is not really necessary. It is given to
+    refer to single records.
+
+    Well, here we have a frontend/backend configuration. The frontend
+    records are labeled with the key "front", the backend records with
+    "back".
+
+    When a request comes in first the records with a ":PRE:" uri are
+    examined. Suppose, a request for "http://abc.com/static/img.png" comes
+    in. Record 1 (id=1) checks the "Host" header. The expression afer
+    "Cond:" is evaluated as Perl code. It obviously returns true. "Cond"
+    stands for *condition*. But how does it affect the further workflow?
+    Here "blk" and "ord" come in. All records with the same "key", "uri" and
+    "blk" form a block. "ord" gives an order within this block. Within a
+    block all actions are executed up to the first condition that is false.
+
+    Now, because our condition in record 1 is true the action in record 2
+    (within the same block) is executed. It redirects the browser with a
+    HTTP code of 301 (MOVED PERMANENTLY) to "http://xyz.com/static/img.png".
+
+    When the redirected request comes back the condition in record 1 is
+    false. Hence, the next block (key=front, uri=:PRE:, blk=1) is evaluated.
+    First a "lang" member of a context hash is set to "en". A "Do" action is
+    similar to a condition, only its value is ignored. Record 4 then checks
+    if the "Host" header matches "/de$/". If so, then record 5 sets the
+    *language* to "de".
+
+    Now, the records labeled with ":PRE:" are finished. The handler starts
+    looking for blocks labeled with the request uri. That is, it looks for a
+    block with key=front, uri=/static/img.png. None is found.
+
+    Then it cuts off the last part of the uri (/img.png), repeats the lookup
+    and finds record 6. The "File" action sets "$r-"filename> to
+    "$DOCROOT/en/img.png". "Apache2::Translation" provides some convenience
+    variables. They are tied to members of the request record or to elements
+    of $ctx. $MATCHED_PATH_INFO contains the uri part cut off ("/img.png").
+    More on them below.
+
+    Now another round is started and the next uri part is cut off. Record 9
+    matches. We see a "Config" action that sets "AuthName" and "AuthType".
+
+    At the end the translation handler checks if "$r-"filename> was set and
+    returns "Apache2::Const::OK" or "Apache2::Const::DECLINED" respectively.
+
+    I think that example gives a general idea, what "Apache2::Translation"
+    does.
+
+  Processing States
+    Internally "Apache2::Translation" is implemented as a state machine. It
+    starts in the *START* state, where some variables are initialized. From
+    there it shifts immediately to the *PREPOC* state. Here all ":PRE:"
+    rules are evaluated. From *PREPROC* it shifts to *PROC*. Now the rules
+    with real uris are examined. The "/" uri is handled in a special state
+    called *LAST ROUND*. When the *DONE* state is reached processing is
+    finished.
+
+    You can control the current state by means of the "State", "Done" and
+    "Restart" actions.
+
+  Blocks and Lists of Blocks
+    Above, we have defined a block as all records with the same "key", "uri"
+    and "block". The actions within a block are ordered by the "order"
+    field.
+
+    A list of blocks is then an ordered list of all blocks with the same
+    "key" and "uri". The order is given by the "block" number.
+
+  Actions
+    An action starts with a key word optionally followed by a colon and some
+    arguments. The key words are case insensitive.
+
+    "Apache2::Translation" provides some environment for code snippets in
+    actions. They are compiled into perl functions. The compiled result is
+    cached. 2 variables, $r and $ctx, are provided plus a few convenience
+    variables. $r is the current "Apache2::RequestRec". $ctx points to a
+    hash that can be used to store arbitrary data. All keys beginning with a
+    space character in that hash are reserved for "Apache2::Translation".
+
+    Do: perl_code
+        This is the simplest action. The Perl code is evaluated in scalar
+        context. The return value is ignored.
+
+    Cond: perl_code
+        This is almost the same as "Do". The return value is taken as
+        boolean. If it is false, the current block is finished. Processing
+        continues with the next block.
+
+    Key: string
+        "string" is evaluated in scalar context. The result is assigned to
+        the current key. The new key takes effect if the list of blocks
+        matching the current uri is finished.
+
+        For example:
+
+         id  key    uri      blk ord action
+          1  dflt   :PRE:    0   0   Cond: $r->connection->remote_ip eq '192.168.0.1'
+          2  dflt   :PRE:    0   1   Key: 'spec'
+          3  dflt   :PRE:    0   2   Do: $DEBUG=3
+          4  dflt   :PRE:    1   0   Config: 'Options None'
+          5  dflt   /        0   0   File: $DOCROOT.$URI
+          6  spec   /        0   0   File: '/very/special'.$URI
+
+        Here an entirely different directory tree is shown to a client with
+        the IP address 192.168.0.1. In record 2 the current key is set to
+        "spec" if the condition in record 1 matches. Also, $DEBUG is set in
+        this case (record 3).
+
+        The next block in record 4 is executed for all clients, because the
+        key change is not in effect, yet.
+
+        Records 5 and 6 are new lists of blocks. Hence, record 6 is executed
+        only for 192.168.0.1 and record 5 for the rest.
+
+        The action "Key: 'string'" is equivalent to "Do: $KEY='string'".
+
+    State: string
+        This action affects the current state directly. Thus, you can loop
+        back to the *PREPROC* state from *PROC*. It is mostly used the
+        prematurely finish the translation handler from the *PREPROC* state.
+        As the "Key" action it takes effect, when the current list of blocks
+        is finished.
+
+        "string" is evaluated as perl code. It is expected to result in one
+        of the following strings. If not, a warning is printed in the
+        "error_log". State names are case insensitive:
+
+            start
+            preproc
+            proc
+            last round
+            done
+
+        The "State" action is similar to setting the convenience variable
+        $STATE. Only in the latter case you must use the state constants,
+        e.g. "$STATE=DONE".
+
+    Last
+        This action finishes the current list of blocks (just like a false
+        condition finishes the current block). It is used together with
+        "State" to finish the translation handler from a conditional block
+        in the *PREPROC* state:
+
+         :PRE:  0 0 Cond: $finish
+         :PRE:  0 1 State: 'done'
+         :PRE:  0 2 Last
+
+        Another application of "Last" is as a return from a "Call" action,
+        see below.
+
+    Done
+        This action is a combination of "State: next_state" and "Last". That
+        means it shifts to the next normal state and finishes the current
+        block list.
+
+    Restart: ?uri?
+        "Restart" restarts the processing. The optional uri argument is
+        evaluated by perl and assigned to "$r-"uri>.
+
+    Call: string
+        Well, the name suggests it is calling a subroutine. Assume you have
+        several WEB applications running on the same server, say one
+        application for each department. Each department needs of course
+        some kind of authorization:
+
+         #uri      blk ord action
+         AUTH      0   0   Config: "AuthName \"$ctx->{name}\""
+         AUTH      0   1   Config: 'AuthType Basic'
+         AUTH      0   2   Config: 'AuthUserFile /etc/htaccess/user/'.$ctx->{file}
+         /dep1     0   0   Do: @{$ctx}{qw/name file/}=('Department 1', 'dep1')
+         /dep1     0   1   Call: 'AUTH'
+         /dep2     0   0   Do: @{$ctx}{qw/name file/}=('Department 2', 'dep2')
+         /dep2     0   1   Call: 'AUTH'
+
+        The "AUTH" in the "Call" actions refer to the "AUTH" block list in
+        the "uri" column.
+
+        "Call" fetches the block list for a given uri and processes it. If a
+        "Last" action is executed the processing of that block list is
+        finished.
+
+    Redirect: url, ?http_code?
+        The "Redirect" action sends a HTTP redirect response to the client
+        and abort the current request. The optional "http_code" specifies
+        the HTTP response code. Default is 302 (MOVED TEMPORARILY).
+
+    Error: ?http_code?, ?message?
+        "Error" aborts the entire request. A HTTP response is sent to the
+        client. The optional "http_code" specifies the HTTP response code.
+        The optional "message" is logged as reason to the "error_log".
+
+        "http_code" defaults to 500 (INTERNAL SERVER ERROR), "message" to
+        "unspecified error".
+
+    Config: list_of_strings_or_arrays
+        Surprisingly, this is the most complex action of all.
+
+        This action changes the Apache configuration regarding the current
+        request. Think of it as a kind of ".htaccess". Arguments to "Config"
+        can be strings or arrays of one or two elements:
+
+         Config: 'AuthName "secret"',
+                 ['AuthType Basic'],
+                 ['ProxyPassReverse http://...', '/path'],
+                 ['<Directory />', ''],
+                 ['AllowOverride Options', ''],
+                 ['</Directory>', '']
+
+        To understand the different meaning, you have to know about how
+        Apache applies its configuration to a request. Hence, let's digress
+        a little.
+
+        Each Apache directive can be used in certain contexts. Some for
+        example can occur only in server config context, that means outside
+        any "Directory", "Location" or even "VirtualHost" container.
+        "Listen" or "PidFile" are examples. Other directives insist on being
+        placed in a container, some even want to be only in a "Directory"
+        container. For example "AllowOverride" demands a "Directory"
+        container.
+
+        Also, the point in time when a directive takes effect differs for
+        different directives. "PidFile" is clearly be applied during server
+        startup before any request is processed. Hence, our "Config" action
+        cannot apply "PidFile". It's simply too late. "AllowOverride" can be
+        applied to single requests. But since it affects the processing of
+        ".htaccess" files it must be applied before that processing takes
+        place. To make things even more confusing some directives take
+        effect at several points in time. Consider
+
+         Options FollowSymLinks ExecCGI
+
+        "FollowSymLinks" is applied when Apache looks up a file in the file
+        system, while "ExecCGI" influences the way the response is generated
+        ages later.
+
+        Apache solves this complexity by computing a configuration for each
+        single request. As a starting point it uses the server default
+        configuration. That is the configuration outside any "Location" or
+        "Directory" for a virtual host. This basic configuration is assigned
+        to the request just between the *Uri Translation Phase* and *Map to
+        Storage*. At the very end of *Map to Storage* Apache's core *Map to
+        Storage* handler incorporates matching "Directory" containers and
+        ".htaccess" files into the request's current configuration.
+        "Location" containers are merged after *Map to Storage* is finished.
+
+        Our "Config" action is applied early in *Map to Storage*. That means
+        it affects the way Apache maps the request file name computed in the
+        translation phase to the file system, because that comes later. But
+        it also means, your static configuration (config file based)
+        overrides our "Config" actions. This limitation can be partly
+        overcome using "FixupConfig" instead of "Config".
+
+        Now, what does the various syntaxes mean? The simplest one:
+
+         #uri      blk ord action
+         /uri      0   0   Config: 'ProxyPassReverse http://my.backend.org'
+
+        is very close to
+
+         <Location /uri>
+           ProxyPassReverse http://my.backend.org
+         </Location>
+
+        Only, it is applied before any "Directory" container takes effect.
+        Note, the location uri is the value of $MATCHED_URI, see below. This
+        is also valid if the "Config" action is used from a "Call"ed block.
+
+        The location uri is sometimes important. "ProxyPassReverse", for
+        example, uses the path given to the location container for its own
+        purpose.
+
+        All other forms of "Config" are not influenced by $MATCHED_URI.
+
+        The next one:
+
+         Config: ['ProxyPassReverse http://my.backend.org']
+
+        is equivalent to
+
+         <Location />
+           ProxyPassReverse http://my.backend.org
+         </Location>
+
+        Note, the location uri differs.
+
+        This is also the only form of this action, that is available with
+        mod_perl before 2.0.3.
+
+        The next one:
+
+         Config: ['ProxyPassReverse http://my.backend.org', '/path']
+
+        is equivalent to
+
+         <Location /path>
+           ProxyPassReverse http://my.backend.org
+         </Location>
+
+        and
+
+         Config: ['ProxyPassReverse /path http://my.backend.org', '']
+
+        is equivalent to
+
+         ProxyPassReverse /path http://my.backend.org
+
+        This last form evaluates configuration directives as if they appear
+        outside any container. It is also a little dangerous, because it
+        causes segfaults for some directives that are not prepared to be
+        used this way. But it is the only way to apply an "AllowOverride",
+        for example.
+
+    FixupConfig: list_of_strings_or_arrays
+        Syntax and sematic of this action is equivalent to "Config". The
+        only difference, it is applied in the fixup phase, just before the
+        response is generated. It can be seen as a hook to override static
+        configuration in your "httpd.conf". Suppose your "httpd.conf"
+        contains these lines:
+
+         <Directory />
+           Options None
+         </Directory>
+
+        But now you want to run files contained in /web/cgi as CGI scripts.
+
+        "Config: 'Options ExecCGI'" would not help because it is overridden
+        by the directory container that is merged later. Here:
+
+         FixupConfig: 'Options ExecCGI'
+
+        can be used.
+
+    Uri: string
+        This action sets "$r->uri" to string. It is equivalent to
+
+         Do: $URI=do{ string }
+
+    File: string
+        This action sets "$r->filename" to string. It is equivalent to
+
+         Do: $FILENAME=do{ string }
+
+    Proxy: ?url?
+        This tells Apache to forward the request to "url" as a proxy. "url"
+        is optional. If ommitted "$r->unparsed_uri" is used. That means
+        Apache must be used as a proxy by the browser.
+
+    CgiScript (without parameter)
+        is equivalent to
+
+         Do: $r->handler( 'cgi-script' );
+         FixupConfig: ['Options ExecCGI']
+
+    PerlScript (without parameter)
+        is equivalent to
+
+         Do: $r->handler( 'perl-script' );
+         FixupConfig: ['Options ExecCGI'], ['PerlOptions +ParseHeaders']
+
+    PerlHandler: string
+        This action checks that either "modperl" or "perl-script" is set as
+        handler for the request. If not, "modperl" is set. "string" is
+        evaluated as Perl code. The result is expected to be a package name
+        or a fully qualified function name. If a package name is given
+        "::handler" is appended to build a fully qualified function name.
+
+        The action checks if the function is defined. If not, it tries to
+        load the appropriate module.
+
+        The function is the used as "PerlResponseHandler".
+
+        Further, a "PerlMapToStorageHandler" is installed that skips the
+        handling of "Directory" containers and ".htaccess" files. If not
+        set, this handler also sets "path_info". Assumed,
+
+         #uri        blk ord action
+         /some/path  0   0   PerlHandler: ...
+
+        and a request comes in for "/some/path/foo/bar". Then "path_info" is
+        set to "/foo/bar".
+
+  Convenience Variables and Data Structures
+    These variables are tied to elements of the current request ($r) or the
+    current context hash ($ctx). Reading them returns the current value,
+    setting changes it.
+
+    $URI = "$r->uri"
+    $REAL_URI = "$r->unparsed_uri"
+    $METHOD = "$r->method"
+    $QUERY_STRING = "$r->args"
+    $FILENAME = "$r->filename"
+    $DOCROOT = "$r->document_root"
+    $HOSTNAME = "$r->hostname"
+    $PATH_INFO = "$r->path_info"
+        for more information see Apache2::RequestRec.
+
+    $MATCHED_URI = "$ctx->{' uri'}"
+    $MATCHED_PATH_INFO = "$ctx->{' pathinfo'}"
+        While in "PROC" state the incoming uri is split in 2 parts. The
+        first part is matching the "uri" field of a database record. The
+        second part is the rest. They can be accessed as $MATCHED_URI and
+        $MATCHED_PATH_INFO.
+
+    $KEY = "$ctx->{' key'}"
+        the current key.
+
+    $STATE = "$ctx->{' state'}"
+        the current processing state.
+
+    $RC = "$ctx->{' rc'}"
+        Normally, "Apache2::Translation" checks at the end if "$r->filename"
+        is set. If so, it returns "Apache2::Const::OK" to its caller. If
+        not, "Apache2::Const::DECLINED" is returned. The first alternative
+        signals that the *Uri Translation Phase* is done and no further
+        handlers are called in this phase. The second alternative signals
+        that subsequent handlers are to be called. Thus, "mod_alias" or even
+        the core translation handler see the request.
+
+        Setting $RC your action decide what is returned.
+
+        $RC is also set by the "PerlHandler" action. Modperl generated
+        responses are normally not associated with a single file on disk.
+
+    $DEBUG = "$ctx->{' debug'}"
+        If set to 1 or 2 debugging output is sent to the "error_log".
+
+APACHE CONFIGURATION DIRECTIVES
+    After installed and loaded by
+
+      PerlLoadModule Apache2::Translation
+
+    in your "httpd.conf" "Apache2::Translation" is configured with the
+    following directives:
+
+    TranslationProvider class param1 param2 ...
+        Currently there is only one provider class implemented,
+        "Apache2::Translation::DB". Hence, "class" is always "DB" or
+        "Apache2::Translation::DB".
+
+        Each parameter is expected to be a string formatted as
+
+         NAME=VALUE
+
+        There must be no spaces around the equal sign. The list is passed to
+        the constructor of the provider class as named parameters:
+
+         $class->new( NAME1=>VALUE1, NAME2=>VALUE2, ... );
+
+        The following parameters are expected by the "DB" provider:
+
+        database=DSN
+          a string describing a DBI database
+
+        user=NAME
+        password=PW
+          the user and password to use
+
+        table=NAME
+          names the translation table.
+
+        key=NAME
+        uri=NAME
+        block=NAME
+        order=NAME
+        action=NAME
+          name the columns of the translation table to use.
+
+        cachetbl=NAME
+        cachecol=NAME
+          name the cache table and its column
+
+        cachesize=NUMBER|infinite
+          sets the maximum number of cached block lists, default is 1000.
+
+          If set to "infinite" the cache has no limits.
+
+          A Tie::Cache::LRU cache is used.
+
+          "Apache2::Translation::DB" caches database entries as lists of
+          blocks. Each list of blocks consumes one cache entry.
+
+          For each request first the following lookup is done:
+
+           SELECT MAX($cachecol) FROM $cachetbl
+
+          The resulting value is then compared with the previous read value.
+          If it has changed, it means the cache is invalid. If not, the
+          cache is valid and if all information is found in the cache, no
+          further database lookups are needed.
+
+        singleton=BOOLEAN
+          Normally, "Apache2::Translation" tries to connect to the database
+          at server startup. Then it inspects the database handle to see if
+          "Apache::DBI" or "Apache::DBI::Cache" are loaded. If so, it will
+          connect and disconnect for each translation phase / request, thus,
+          put back the connection to the connection pool.
+
+          If neither of them is loaded the DB connection is used as a
+          singleton. It is connected once at server startup and then held
+          open (and reconnected if dropped by the database server).
+
+          With the optional "singleton" parameter you can decide to use a
+          singleton connection even if a connection pool is in effect. If no
+          connection pool is loaded, then of course setting "singleton" to
+          false has no effect.
+
+    TranslationKey initial-key
+        This sets the initial value for the key. Default is the empty
+        string.
+
+    TranslationEvalCache number
+        "Apache2::Translation" compiles all code snippets into functions and
+        caches these functions. Normally, an ordinary hash is used for this.
+        Strictly speaking this is a memory hole if your translation table
+        changes. I think that can be ignored, if the number of requests per
+        worker is limited, see "MaxRequestsPerChild". If you think this is
+        too lax, put a number here.
+
+        If set the cache is tied to Tie::Cache::LRU. The number of cached
+        code snippets will then be limited by "number".
+
+PROVIDER INTERFACE
+    A provider must support the following methods:
+
+    new( NAME=>VALUE, ... )
+        the constructor. It is called once from the master Apache during its
+        configuration.
+
+    child_init
+        This method is optional. If defined it is called from a
+        "PerlChildInitHandler" and can be used to do some initializations.
+        The "DB" provider connects here to the database and decides to use a
+        singleton or not.
+
+    start
+        This method is called at start of each uri translation. The DB
+        provider checks the cache here.
+
+    stop
+        is called after each uri translation.
+
+    fetch( $key, $uri )
+        is called to fetch a list of blocks. The result is a list of arrays:
+
+         ([block, order, action],
+          [block, order, action],
+          ...)
+
+SEE ALSO
+    mod_perl: http://perl.apache.org
+
+AUTHOR
+    Torsten Foertsch, <torsten.foertsch@gmx.net>
+
+SPONSORING
+    Sincere thanks to Arvato Direct Services (http://www.arvato.com/) for
+    sponsoring this module.
+
+COPYRIGHT AND LICENSE
+    Copyright (C) 2005, 2006 by Torsten Foertsch
+
+    This library is free software; you can redistribute it and/or modify it
+    under the same terms as Perl itself.
+

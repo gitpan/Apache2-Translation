@@ -1,0 +1,18 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+mk_README.sh
+t/TEST.PL
+t/001provider-DB.t
+t/010states.t
+t/011directives.t
+t/pm/TestConfig.pm
+t/pm/TestHandler.pm
+t/conf/extra.conf.in
+t/conf/extra.last.conf.in
+lib/Apache2/Translation.pm
+lib/Apache2/Translation.pod
+lib/Apache2/Translation/DB.pm
+perl-Apache2-Translation.spec
+META.yml                                 Module meta-data (added by MakeMaker)
