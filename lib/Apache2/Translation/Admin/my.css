@@ -1,0 +1,169 @@
+p, option, select, input, textarea {
+  font-family: Helvetica, Verdana, Arial, sans-serif;
+  font-size: 9pt;
+  font-style: normal;
+  font-variant: normal;
+  font-weight: normal;
+}
+
+input[type="submit"], select {
+  height: 15pt;
+}
+
+textarea {
+  font-family: monospace;
+}
+
+a.opener {
+  text-decoration: none;
+}
+
+td.control img {
+  border: none;
+  margin: 2px;
+  padding: 0;
+}
+
+td.control {
+  vertical-align: middle;
+  line-height: 1px;
+  font-size: 1px;
+}
+
+a.opener img, h3 img {
+  border: none;
+  margin-top: 5px;
+  margin-bottom: -5px;
+  margin-left: 5px;
+}
+
+h2 {
+  font-family: Helvetica, Verdana, Arial, sans-serif;
+  font-size: 14pt;
+  font-style: normal;
+  font-variant: small-caps;
+  font-weight: bold;
+}
+
+h1 {
+  font-family: Helvetica, Verdana, Arial, sans-serif;
+  font-size: 16pt;
+  font-style: normal;
+  font-weight: bold;
+}
+
+h2 img {
+  border: none;
+  margin-right: 10px;
+}
+
+h3 {
+  font-family: Helvetica, Verdana, Arial, sans-serif;
+  font-size: 12pt;
+  font-style: normal;
+  font-variant: normal;
+  font-weight: bold;
+  background-color: #cccccc;
+  margin-bottom: 0;
+  margin-top: 10px;
+  padding-top: 2px;
+  padding-bottom: 3px;
+}
+
+div.fetch {
+  border-top: solid #999999 1px;
+  width: 100%;
+  background-color: #ddddcc;
+  margin: 0;
+}
+
+div.fetch th {
+  font-family: Helvetica, Verdana, Arial, sans-serif;
+  font-size: 9pt;
+  font-style: normal;
+  font-variant: normal;
+  font-weight: bold;
+}
+
+div.fetch td {
+  font-family: Helvetica, Verdana, Arial, sans-serif;
+  font-size: 9pt;
+  font-style: normal;
+  font-variant: normal;
+  font-weight: normal;
+}
+
+.header {
+  margin-left: 10pt;
+}
+
+.saver a {
+  font-size: 9pt;
+  font-weight: normal;
+  text-decoration: none;
+  color: blue;
+}
+
+.saver a:hover {
+  color: red;
+}
+
+form {
+  margin: 0;
+  padding: 0;
+}
+
+td.tdcol1 {
+  width: 100px;
+}
+
+td.tdcol2 {
+  width: 580px;
+}
+
+td.tdcol2 input {
+  width: 100%;
+}
+
+textarea.fetch_ta {
+  width: 700px;
+}
+
+td.tdc1 {
+  margin: 0;
+  padding: 5px;
+  background-color: #aaddaa;
+}
+
+td.tdc2 {
+  margin: 0;
+  padding: 5px;
+  background-color: #ddaaaa;
+}
+
+td.tdc3 {
+  margin: 0;
+  padding: 5px;
+  background-color: #aaaadd;
+}
+
+tr.tdc {
+  margin: 0;
+  padding: 0;
+}
+
+div.resizer {
+  height: 3px;
+  margin: 0;
+  margin-top: 1px;
+  width: 100%;
+  background-color: #ddddcc;
+  border-style: outset;
+  border-width: 2px;
+  font-size: 1px;
+  cursor: n-resize;
+}
+
+img.pfeil {
+  padding-bottom: 4px;
+}

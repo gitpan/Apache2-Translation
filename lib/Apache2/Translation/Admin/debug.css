@@ -1,0 +1,14 @@
+#debug {
+  position: absolute;
+  right: 0px;
+  top: 0px;
+  width: 900px;
+  height: 350px;
+  background-color: #555555;
+  color: #ffff00;
+  opacity: 0.85;
+  z-index: 10000;
+  font-size: 12px;
+  font-weight: bold;
+  overflow: scroll;
+}

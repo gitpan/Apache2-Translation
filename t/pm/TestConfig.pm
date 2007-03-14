@@ -27,6 +27,7 @@ sub handler {
   $r->content_type('text/plain');
 
   my $cf=Apache2::Module::get_config(__PACKAGE__, $r->server);
+  #my $cf=Apache2::Module::get_config(__PACKAGE__, $r->server, $r->per_dir_config);
   $cf=$cf->{config};
   $r->print( defined $cf ? $cf : 'UNDEF' );
 

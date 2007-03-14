@@ -1,0 +1,135 @@
+[%- DEFAULT  
+    title = 'Translation Administration'
+-%]
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+		<link rel="stylesheet" href="my.css" type="text/css" media="screen" />  
+		<!-- <link rel="stylesheet" href="debug.css" type="text/css" media="screen" /> -->
+		<script src="prototype.js" type="text/javascript"></script>
+		<script src="effects.js" type="text/javascript"></script>
+		<script src="dragdrop.js" type="text/javascript"></script>
+		<script src="my.js" type="text/javascript"></script>
+		<!-- <script src="debug.js" type="text/javascript"></script> -->
+		<title>[% title | html %] [% I.title | html %]</title>
+	</head>
+	<body>
+		<h1>[% title | html %] [% I.title | html %]</h1>
+		<form action="index.html" method="GET">
+			<p>
+				Key Filter:
+				<select name="key">
+				[%- FOREACH k=KEYS %]
+					<option value="[% k.value | html %]" [% k.selected %]>[% k.name | html %]</option>
+        		[%- END %]
+				</select>
+				<input type="submit" name="ok" value="OK">
+			</p>
+		</form>
+		
+		[%- counter=0 %]
+		<!-- Preprocess Phase -->
+		<h2>
+			<a href="#" class="opener" title="new block list"
+			   onclick="return xnewkey(this, ':PRE:');"><img src="newlist.gif"></a>
+			Preprocess Phase
+		</h2>
+		[%- FOREACH k=PREPROC %]
+
+		<!-- [% k.0 | html | replace('-', '%2D') %]: [% k.1 | html | replace('-', '%2D') %] -->
+		<h3><a id="a[% counter %]" class="opener" href="#"
+			   title="open/close this block list"
+			   onclick="return xtoggle( [% counter %], this )">
+				<img src="closed.gif">
+			</a>
+			<a href="#" class="opener" id="reload[% counter %]"
+			   title="reload this block list"
+			   onclick="return xreload( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="reload.gif">
+			</a>
+			<a href="#" class="opener" id="save[% counter %]"
+			   title="save this block list"
+			   onclick="return xupdate( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="save.gif">
+			</a>
+			<span class="header" id="header[% counter %]">[% k.0 | html %]</span>
+		</h3>
+		<div id="div[% counter %]" style="display: none;" ADM_KEY="[% k.0 | uri | html %]" ADM_URI="[% k.1 | uri | html %]"></div>
+		[%- counter=counter+1 %]
+		[%- END %]
+
+		<!-- Process Phase -->
+		<h2>
+			<a href="#" class="opener" title="new block list"
+			   onclick="return xnewkey(this, '/');"><img src="newlist.gif"></a>
+			Process Phase
+		</h2>
+		[%- FOREACH k=URIS %]
+
+		<!-- [% k.0 | html | replace('-', '%2D') %]: [% k.1 | html | replace('-', '%2D') %] -->
+		<h3><a id="a[% counter %]" class="opener" href="#"
+			   title="open/close this block list"
+			   onclick="return xtoggle( [% counter %], this )">
+				<img src="closed.gif">
+			</a>
+			<a href="#" class="opener" id="reload[% counter %]"
+			   title="reload this block list"
+			   onclick="return xreload( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="reload.gif">
+			</a>
+			<a href="#" class="opener" id="save[% counter %]"
+			   title="save this block list"
+			   onclick="return xupdate( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="save.gif">
+			</a>
+			<span class="header" id="header[% counter %]">[% k.0 | html %] <img class="pfeil" src="pfeil.gif"> [% k.1 | html %]</span>
+		</h3>
+		<div id="div[% counter %]" style="display: none;" ADM_KEY="[% k.0 | uri | html %]" ADM_URI="[% k.1 | uri | html %]"></div>
+		[%- counter=counter+1 %]
+		[%- END %]
+
+		<!-- Subroutines -->
+		<h2>
+			<a href="#" class="opener" title="new block list"
+			   onclick="return xnewkey(this);"><img src="newlist.gif"></a>
+			Subroutines
+		</h2>
+		[%- FOREACH k=SUBS %]
+
+		<!-- [% k.0 | html | replace('-', '%2D') %]: [% k.1 | html | replace('-', '%2D') %] -->
+		<h3>
+			<a id="a[% counter %]" class="opener" href="#"
+			   title="open/close this block list"
+			   onclick="return xtoggle( [% counter %], this )">
+				<img src="closed.gif">
+			</a>
+			<a href="#" class="opener" id="reload[% counter %]"
+			   title="reload this block list"
+			   onclick="return xreload( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="reload.gif">
+			</a>
+			<a href="#" class="opener" id="save[% counter %]"
+			   title="save this block list"
+			   onclick="return xupdate( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="save.gif">
+			</a>
+			<span class="header" id="header[% counter %]">[% k.0 | html %] <img class="pfeil" src="pfeil.gif"> [% k.1 | html %]</span>
+		</h3>
+		<div id="div[% counter %]" style="display: none;" ADM_KEY="[% k.0 | uri | html %]" ADM_URI="[% k.1 | uri | html %]"></div>
+		[%- counter=counter+1 %]
+		[%- END %]
+		<script type="text/javascript">next_counter=[% counter %];</script>
+	</body>
+</html>
+[%#
+Local Variables:
+tab-width: 4
+End:
+%]

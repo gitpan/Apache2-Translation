@@ -21,8 +21,7 @@ sub handler {
 
   $r->content_type('text/plain');
 
-  local $"=' ';
-  $r->print("@{$r->pnotes('t')}");
+  $r->print(substr( $r->notes->{t}, 1 ));
 
   return Apache2::Const::OK;
 }

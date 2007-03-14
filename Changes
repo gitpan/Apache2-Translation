@@ -6,3 +6,8 @@ Revision history for Perl extension Apache2::Translation.
 
 0.08  Tue Mar  7 21:49:50 CET 2006
 	- initial public version
+
+0.12  Wed Mar 14 14:00:38 CET 2007
+	- Admin interface
+	- File provider
+	- worker MPM

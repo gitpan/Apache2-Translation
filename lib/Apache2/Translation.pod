@@ -9,19 +9,39 @@ Apache2::Translation - Configuring Apache dynamically
   PerlTransHandler Apache2::Translation
   TranslationEvalCache 1000
   TranslationKey MyKey
-  TranslationProvider DB \
-                      database=dbi:mysql:dbname:host \
-                      user=username password=password \
-                      singleton=1 \
-                      table=tablename \
-                      key=keycolumn \
-                      uri=uricolumn \
-                      block=blockcolumn \
-                      order=ordercolumn \
-                      action=actioncolumn \
-                      cachetbl=cachetablename \
-                      cachecol=cachecolumn \
-                      cachesize=1000
+  <TranslationProvider DB>
+      Database  dbi:mysql:dbname:host
+      User      username
+      Password  password
+      Singleton 1
+      Table     tablename
+      Key       keycolumn
+      Uri       uricolumn
+      Block     blockcolumn
+      Order     ordercolumn
+      Action    actioncolumn
+      Cachetbl  cachetablename
+      Cachecol  cachecolumn
+      Cachesize 1000
+  </TranslationProvider>
+
+  # another provider
+  <TranslationProvider File>
+      Configfile /path/to/config
+  </TranslationProvider>
+
+  # export our provider parameters
+  <Location /config>
+    SetHandler modperl
+    PerlResponseHandler Apache2::Translation::Config
+  </Location>
+
+  # configuring the WEB interface
+  PerlModule Apache2::Translation::Admin
+  <Location /-/transadm/>
+    SetHandler modperl
+    PerlResponseHandler Apache2::Translation::Admin
+  </Location>
 
 =head1 DESCRIPTION
 
@@ -32,9 +52,10 @@ a server without restarting it.
 
 The actual configuration statements are read by means of a
 I<Translation Provider>, a Perl class offering
-a particular interface, see below. Currently there is one provider
-implemented, L<Apache2::Translation::DB>. It reads the configuration
-from a database via L<DBI>.
+a particular interface, see below. Currently there are 2 providers
+implemented, L<Apache2::Translation::DB> and L<Apache2::Translation::File>.
+
+There is also a WEB interface (L<Apache2::Translation::Admin>).
 
 =head2 An Example
 
@@ -269,10 +290,7 @@ or arrays of one or two elements:
 
  Config: 'AuthName "secret"',
          ['AuthType Basic'],
-         ['ProxyPassReverse http://...', '/path'],
-         ['<Directory />', ''],
-         ['AllowOverride Options', ''],
-         ['</Directory>', '']
+         ['ProxyPassReverse http://...', '/path']
 
 To understand the different meaning, you have to know about how Apache
 applies its configuration to a request. Hence, let's digress a little.
@@ -280,9 +298,7 @@ applies its configuration to a request. Hence, let's digress a little.
 Each Apache directive can be used in certain contexts. Some for example
 can occur only in server config context, that means outside  any C<Directory>,
 C<Location> or even C<VirtualHost> container. C<Listen> or C<PidFile> are
-examples. Other directives insist on being placed in a container, some
-even want to be only in a C<Directory> container. For example C<AllowOverride>
-demands a C<Directory> container.
+examples. Other directives insist on being placed in a container.
 
 Also, the point in time when a directive takes effect differs for different
 directives. C<PidFile> is clearly be applied during server startup before
@@ -308,8 +324,8 @@ current configuration. C<Location> containers are merged after
 I<Map to Storage> is finished.
 
 Our C<Config> action is applied early in I<Map to Storage>. That means it
-affects the way Apache maps the request file name computed in the translation
-phase to the file system, because that comes later. But it also means, your
+affects the way Apache maps the request file name computed to the file
+system, because that comes later. But it also means, your
 static configuration (config file based) overrides our C<Config> actions.
 This limitation can be partly overcome using C<FixupConfig> instead of
 C<Config>.
@@ -334,9 +350,10 @@ example, uses the path given to the location container for its own purpose.
 
 All other forms of C<Config> are not influenced by C<$MATCHED_URI>.
 
-The next one:
+These two:
 
  Config: ['ProxyPassReverse http://my.backend.org']
+ Config: ['ProxyPassReverse /path http://my.backend.org', '']
 
 is equivalent to
 
@@ -346,8 +363,8 @@ is equivalent to
 
 Note, the location uri differs.
 
-This is also the only form of this action, that is available with mod_perl
-before 2.0.3.
+The first one of them is also the only form of C<Config> available with
+mod_perl before 2.0.3.
 
 The next one:
 
@@ -359,18 +376,47 @@ is equivalent to
    ProxyPassReverse http://my.backend.org
  </Location>
 
-and
-
- Config: ['ProxyPassReverse /path http://my.backend.org', '']
-
-is equivalent to
+I have chosen C<ProxyPassReverse> for this example because the C<Location>-Path
+matters for this directive, see httpd docs. The following form of applying
+C<ProxyPassReverse> outside of any container is not possible with
+C<Apache2::Translation>:
 
  ProxyPassReverse /path http://my.backend.org
 
-This last form evaluates configuration directives as if they appear outside
-any container. It is also a little dangerous, because it causes segfaults
-for some directives that are not prepared to be used this way. But it
-is the only way to apply an C<AllowOverride>, for example.
+Now let's look at another example to see how C<Directory> containers and
+C<.htaccess> files are applied. C<AllowOverride> controls which directives
+are allowed in C<.htaccess> files. As said before Apache applies C<Directory>
+containers and C<.htaccess> files after our C<Config> directives.
+Unfortunately, they are both applied in the same step. That means we can
+say:
+
+ Config: 'AllowOverride Options'
+
+But if at least one C<Directory> container from our C<httpd.conf> is applied
+that says for example C<AllowOverride AuthConfig> it will override our
+C<Config> statement. So, if you want to control which directives are allowed
+in C<.htaccess> files with C<Apache2::Translation> then avoid C<AllowOverride>
+in your C<httpd.conf>, especially the often seen:
+
+ <Directory />
+   AllowOverride None
+ </Directory>
+
+Put it instead in a I<PREPROC> rule:
+
+ #uri     blk ord action
+ :PRE:    0   0   Config: 'AllowOverride None'
+
+So subsequent rules can override it.
+
+A similar problem exists with C<Options FollowSymlinks>. This option affects
+directly the phase when C<Directory> containers are applied. Hence, any
+such option from the C<httpd.conf> cannot be overridden by a C<Config> rule.
+
+In Apache 2.2 at least up to 2.2.4 there is a bug that prevents
+C<Config: AllowOverride Options> from working properly. The reason is an
+uninitialized variable that is by cause 0, see
+L<http://www.gossamer-threads.com/lists/apache/dev/327770#327770>
 
 =item B<FixupConfig: list_of_strings_or_arrays>
 
@@ -523,21 +569,36 @@ the following directives:
 
 =over 4
 
-=item B<TranslationProvider class param1 param2 ...>
+=item B<E<lt>TranslationProvider classE<gt> ... E<lt>/TranslationProviderE<gt>>
 
 Currently there is only one provider class implemented,
 C<Apache2::Translation::DB>. Hence, C<class> is always C<DB> or
 C<Apache2::Translation::DB>.
 
-Each parameter is expected to be a string formatted as
+The ellipsis represents configuration lines formatted as
 
- NAME=VALUE
+ NAME   VALUE
 
-There must be no spaces around the equal sign. The
-list is passed to the constructor of the provider class as named
-parameters:
+These lines parameterise the the provider. C<NAME> is case insensitive and
+is converted to lowercase before passed to the provider object.
+Spaces round C<VALUE> are stripped off. If C<VALUE> begins and ends with
+the same quotation character (double quote or single quote) they are also
+stripped off.
+
+The provider object is then created by:
 
  $class->new( NAME1=>VALUE1, NAME2=>VALUE2, ... );
+
+There are currently 2 providers implemented. One is based on a database
+the other on a human readable flat file for storage.
+
+The C<File> provider expects only one parameter:
+
+=over 2
+
+=item B<configfile=/path/to/file>
+
+=back
 
 The following parameters are expected by the C<DB> provider:
 
@@ -614,9 +675,23 @@ has no effect.
 
 =back
 
+=item B<TranslationProvider class param1 param2 ...>
+
+This is an alternative way to specify translation provider parameters.
+
+Each parameter is expected to be a string formatted as
+
+ NAME=VALUE
+
+There must be no spaces around the equal sign. The
+list is passed to the constructor of the provider class as named
+parameters:
+
+ $class->new( NAME1=>VALUE1, NAME2=>VALUE2, ... );
+
 =item B<TranslationKey initial-key>
 
-This sets the initial value for the key. Default is the empty string.
+This sets the initial value for the key. Default is the string C<default>.
 
 =item B<TranslationEvalCache number>
 
@@ -631,7 +706,106 @@ snippets will then be limited by C<number>.
 
 =back
 
-=head1 PROVIDER INTERFACE
+=head2 Exporting our provider parameters
+
+C<Apache2::Translation> can export its provider parameters by means of the
+PerlResponseHandler C<Apache2::Translation::Config>. This handler is
+implemented in the same C<Apache2::Translation> module. So there is no need
+for another PerlModule statement. Simply configure the handler for some
+location:
+
+  <Location /-/config>
+    SetHandler modperl
+    PerlResponseHandler Apache2::Translation::Config
+  </Location>
+
+Now our provider parameters are accessible in YAML format via
+http://host/-/config, e.g.:
+
+  $ curl http://localhost/-/config
+  ---
+  TranslationEvalCache: 1000
+  TranslationKey: default
+  TranslationProvider:
+    - File
+    - configfile
+    - /path/to/config
+
+This format can be used by the WEB interface C<Apache2::Translation::Admin>
+to connect to the provider.
+
+=head2 The WEB administration interface
+
+The simplest way to configure the WEB interface is this:
+
+  PerlModule Apache2::Translation::Admin
+  <Location /-/transadm/>
+    SetHandler modperl
+    PerlResponseHandler Apache2::Translation::Admin
+  </Location>
+
+Note, here an extra PerlModule statement is necessary. If nothing else
+specified the provider that has handled the current request is used.
+
+Note, there is a slash at the end of the location statement. It is necessary
+to be specified. Also, the URL given to the browser to reach the WEB interface
+must end with a slash or with C</index.html>.
+
+Another provider is given by creating an C<Apache2::Translation::Admin>
+object:
+
+  <Perl>
+    $My::Transadmin=Apache2::Translation::Admin->new
+         (provider_spec=>[File,
+                          ConfigFile=>'/path/to/config']);
+  </Perl>
+
+  <Location /-/transadm/>
+    SetHandler modperl
+    PerlResponseHandler $My::Transadmin->handler
+  </Location>
+
+Here the provider is specified in a way similar to the C<TranslationProvider>
+statement above.
+
+Also, an URL can be given that links to an exported parameter set:
+
+  <Perl>
+    $My::Transadmin=Apache2::Translation::Admin->new
+         (provider_url=>'http://host/config');
+  </Perl>
+
+In this case C<LWP::UserAgent> is used to fetch the parameters.
+
+Or you can create the provider object by yourself and pass it:
+
+  <Perl>
+    use Apache2::Translation::File;
+    $My::Transadmin=Apache2::Translation::Admin->new
+	(provider=>Apache2::Translation::File->new
+                      (configfile=>'/path/to/config'));
+  </Perl>
+
+
+=head1 SUPPORTED MPMS
+
+This module has been testet with both C<prefork> and C<worker> MPMs.
+Under the worker-MPM the C<PerlInterpScope> configuration statement
+influences it's work. With the default C<PerlInterpScope request> and
+with C<PerlInterpScope subrequest> it works smoothly.
+
+With C<PerlInterpScope handler> it does work but at least up to mod_perl
+2.0.3 a patch is needed. At the time of this writing I hope this thread:
+http://www.gossamer-threads.com/lists/modperl/dev/92663#92663 will lead
+to a solution.
+
+With C<PerlInterpScope connection> the test suite fails.
+
+By the way, different C<PerlInterpScope>s save C<request> are not covered
+by the mod_perl test suite in any way. So, don't rely on them!
+
+
+=head1 IMPLEMENTING A NEW PROVIDER
 
 A provider must support the following methods:
 
@@ -668,6 +842,48 @@ is called to fetch a list of blocks. The result is a list of arrays:
 
 =back
 
+The following interface is optional. It has to be implemented if the provider
+is to be used also with the administration WEB interface.
+
+=over 4
+
+=item B<list_keys>
+
+returns a sorted list of known keys.
+
+=item B<list_keys_and_uris( $key )>
+
+C<$key> is a string.
+
+The function returns a sorted list of C<[KEY, URI]> pairs. If C<$key> is empty
+all pairs are returned. Otherwise only pairs where C<$key eq KEY> are
+returned.
+
+=item B<begin>
+
+=item B<commit>
+
+=item B<rollback>
+
+A change conducted via the WEB interface is a sequence of C<update>, C<insert>
+or C<delete> operations. Before it is started C<begin> is called. If there
+has no error occured C<commit> is called otherwise C<rollback>. C<commit> must
+save the changes to the storage. C<rollback> must cancel all changes.
+
+=item B<update( [@old], [@new] )>
+
+=item B<insert( [@new] )>
+
+=item B<delete( [@old] )>
+
+All these functions return something >0 on success. C<@old> is a list of
+C<KEY, URI, BLOCK, ORDER, ID> that specifies an existing action. If there
+is no such action the functions must return C<0>. C<@new> is a list of
+C<KEY, URI, BLOCK, ORDER, ACTION> that is to be inserted or has to replace
+an existing action.
+
+=back
+
 =head1 SEE ALSO
 
 =over 4
@@ -683,11 +899,11 @@ Torsten Foertsch, E<lt>torsten.foertsch@gmx.netE<gt>
 =head1 SPONSORING
 
 Sincere thanks to Arvato Direct Services (http://www.arvato.com/) for
-sponsoring this module.
+sponsoring the initial version of this module.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2005, 2006 by Torsten Foertsch
+Copyright (C) 2005-2007 by Torsten Foertsch
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.

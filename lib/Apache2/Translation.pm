@@ -7,12 +7,12 @@ no warnings qw(uninitialized);
 
 use Apache2::RequestRec;
 use Apache2::RequestUtil;
-use Apache2::SafePnotes qw/spnotes/;
 use Apache2::RequestIO;
 use Apache2::ServerRec;
 use Apache2::ServerUtil;
 use Apache2::Connection;
 use Apache2::CmdParms;
+use Apache2::Directive;
 use Apache2::Module;
 use Apache2::Log;
 use APR::Table;
@@ -24,17 +24,19 @@ use Apache2::Const -compile=>qw{:common :http
 				:types
 				:proxy
 				:options
-				ITERATE TAKE1 RSRC_CONF};
+				ITERATE TAKE1 RAW_ARGS RSRC_CONF};
 
 use Perl::AtEndOfScope;
+use YAML ();
 
-our $VERSION = '0.08';
+our $VERSION = '0.12';
 
 our ($cf,$r,$ctx);
 sub undef_cf_r_ctx {undef $_ for ($cf,$r,$ctx);}
 
 our ($URI, $REAL_URI, $METHOD, $QUERY_STRING, $FILENAME, $DOCROOT,
-     $HOSTNAME, $PATH_INFO,
+     $HOSTNAME, $PATH_INFO, $HEADERS, $REQUEST,
+     $C, $CLIENTIP, $KEEPALIVE,
      $MATCHED_URI, $MATCHED_PATH_INFO, $DEBUG, $STATE, $KEY, $RC);
 
 BEGIN {
@@ -70,7 +72,7 @@ BEGIN {
 }
 
 BEGIN {
-  package Apache2::Translation::_r;
+  package Apache2::Translation::_notes;
 
   use strict;
 
@@ -81,15 +83,28 @@ BEGIN {
 
   sub STORE {
     my $I=shift;
-    my $m=$I->{member};
-    $r->$m(shift);
+    $r->notes->{__PACKAGE__."::".$I->{member}}=shift;
   }
 
   sub FETCH {
     my $I=shift;
-    my $m=$I->{member};
-    return $r->$m;
+    return $r->notes->{__PACKAGE__."::".$I->{member}};
   }
+}
+
+BEGIN {
+  package Apache2::Translation::_r;
+
+  use strict;
+
+  sub TIESCALAR {
+    my $class=shift;
+    my %o=@_;
+    bless eval("sub {\$r->$o{member}(\@_)}")=>$class;
+  }
+
+  sub STORE {my $I=shift; $I->(@_);}
+  sub FETCH {my $I=shift; $I->();}
 }
 
 tie $URI, 'Apache2::Translation::_r', member=>'uri';
@@ -100,13 +115,20 @@ tie $FILENAME, 'Apache2::Translation::_r', member=>'filename';
 tie $DOCROOT, 'Apache2::Translation::_r', member=>'document_root';
 tie $HOSTNAME, 'Apache2::Translation::_r', member=>'hostname';
 tie $PATH_INFO, 'Apache2::Translation::_r', member=>'path_info';
+tie $REQUEST, 'Apache2::Translation::_r', member=>'the_request';
+tie $HEADERS, 'Apache2::Translation::_r', member=>'headers_in';
+
+tie $C, 'Apache2::Translation::_r', member=>'connection';
+tie $CLIENTIP, 'Apache2::Translation::_r', member=>'connection->remote_ip';
+tie $KEEPALIVE, 'Apache2::Translation::_r', member=>'connection->keepalive';
 
 tie $MATCHED_URI, 'Apache2::Translation::_ctx', member=>' uri';
 tie $MATCHED_PATH_INFO, 'Apache2::Translation::_ctx', member=>' pathinfo';
-tie $DEBUG, 'Apache2::Translation::_ctx', member=>' debug';
 tie $STATE, 'Apache2::Translation::_ctx', member=>' state';
 tie $KEY, 'Apache2::Translation::_ctx', member=>' key';
 tie $RC, 'Apache2::Translation::_ctx', member=>' rc';
+
+tie $DEBUG, 'Apache2::Translation::_notes', member=>' debug';
 
 
 use constant {
@@ -159,6 +181,19 @@ my @directives=
     errmsg       => 'TranslationProvider Perl::Class [param1 ...]',
    },
    {
+    name         => '<TranslationProvider',
+    func         => __PACKAGE__.'::TranslationContainer',
+    req_override => Apache2::Const::RSRC_CONF,
+    args_how     => Apache2::Const::RAW_ARGS,
+    errmsg       => <<'EOF',
+<TranslationProvider Perl::Class>
+    Param1 Value1
+    Param2 Value2
+    ...
+</TranslationProvider>
+EOF
+   },
+   {
     name         => 'TranslationKey',
     req_override => Apache2::Const::RSRC_CONF,
     args_how     => Apache2::Const::TAKE1,
@@ -176,33 +211,22 @@ Apache2::Module::add(__PACKAGE__, \@directives);
 sub postconfig {
   my($conf_pool, $log_pool, $temp_pool, $s) = @_;
 
-  my @obj;
-
-  $s->push_handlers( PerlChildInitHandler=>
-		     sub {
-		       foreach my $o (@obj) {
-			 eval {$o->child_init if( $o->can('child_init') );};
-			 $s->warn(__PACKAGE__.": Cannot init provider: $@")
-			   if( $@ );
-		       }
-		     } );
-
   for(; $s; $s=$s->next ) {
     my $cfg=Apache2::Module::get_config( __PACKAGE__, $s );
     if( $cfg ) {
-      if( ref($cfg->{provider}) eq 'ARRAY' ) {
-	my $class=shift @{$cfg->{provider}};
+      if( ref($cfg->{provider_param}) eq 'ARRAY' and
+	  !defined $cfg->{provider} ) {
+	my $param=$cfg->{provider_param};
+	my $class=$param->[0];
 	eval "use Apache2::Translation::$class;";
 	if( $@ ) {
+	  warn "ERROR: Cannot use Apache2::Translation::$class: $@" if $@;
 	  eval "use $class;";
 	  die "ERROR: Cannot use $class: $@" if $@;
 	} else {
 	  $class='Apache2::Translation::'.$class;
 	}
-	$cfg->{provider}=$class->new( map {
-	  split /=/, $_, 2;
-	} @{$cfg->{provider}} );
-	push @obj, $cfg->{provider};
+	$cfg->{provider}=$class->new( @{$param}[1..$#{$param}] );
       }
     }
   }
@@ -221,7 +245,33 @@ sub setPostConfigHandler {
 sub TranslationProvider {
   my($I, $parms, @args)=@_;
   $I=Apache2::Module::get_config(__PACKAGE__, $parms->server);
-  push @{$I->{provider}}, @args;
+  unless( $I->{provider_param} ) {
+    $I->{provider_param}=[shift @args];
+  }
+  push @{$I->{provider_param}}, map {
+    my @x=split /=/, $_, 2;
+    (lc( $x[0] ), $x[1]);
+  } @args;
+  setPostConfigHandler;
+}
+
+sub TranslationContainer {
+  my($I, $parms, $rest)=@_;
+  $I=Apache2::Module::get_config(__PACKAGE__, $parms->server);
+  local $_;
+  my @l=map {
+    s/^\s*//;
+    s/\s*$//;
+    if( length($_) ) {
+      my @x=split( /\s+/, $_, 2 );
+      $x[0]=lc $x[0];
+      $x[1]=~s/^(["'])(.*)\1$/$2/;
+      @x;
+    } else {
+      ();
+    }
+  } split /\n/, $parms->directive->as_string;
+  $I->{provider_param}=[$rest=~/([\w:]+)/, @l];
   setPostConfigHandler;
 }
 
@@ -260,10 +310,14 @@ sub SERVER_CREATE {
   my ($class, $parms)=@_;
 
   return bless {
-		key=>'',
+		key=>'default',
 		eval_cache=>{},
 	       } => $class;
 }
+
+################################################################
+# here begins the real stuff
+################################################################
 
 sub handle_eval {
   my ($eval)=@_;
@@ -281,7 +335,7 @@ SUB
 
     $sub=eval $sub;
     if( $@ ) {
-      (my $e=$@)=~s/\s*$//;
+      (my $e=$@)=~s/\s*\Z//;
       $r->warn( __PACKAGE__.": $eval: $e" );
       return;
     }
@@ -296,11 +350,15 @@ SUB
   }
   die $@ if( ref $@ );
   if( $@ ) {
-    (my $e=$@)=~s/\s*$//;
+    (my $e=$@)=~s/\s*\Z//;
     $r->warn( __PACKAGE__.": $eval: $e" );
   }
 
   return wantarray ? @rc : $rc[0];
+}
+
+sub add_note {
+  $r->notes->add(__PACKAGE__."::".$_[0], $_[1]);
 }
 
 my %action_dispatcher;
@@ -315,13 +373,18 @@ my %action_dispatcher;
    perlhandler=>sub {
      my ($action, $what)=@_;
      $what=handle_eval( $what );
+     add_note(response=>$what);
      $r->handler('modperl')
        unless( $r->handler=~/^(?:modperl|perl-script)$/ );
+
+=pod
+
      my $handler;
      {
        no strict 'refs';
        $handler=(defined(&{$what})?\&{$what}:
 		 defined(&{$what.'::handler'})?\&{$what.'::handler'}:
+		 $what->can('handler')?sub {$what->handler(@_)}:
 		 $what);
 
        unless( ref $handler ) {
@@ -337,6 +400,7 @@ my %action_dispatcher;
 	   unless( $@ );
 	 $handler=(defined(&{$what})?\&{$what}:
 		   defined(&{$what.'::handler'})?\&{$what.'::handler'}:
+		   $what->can('handler')?sub {$what->handler(@_)}:
 		   $what);
 	 $r->warn( __PACKAGE__.": Cannot find handler $what".($@?": $@":'') )
 	   unless( ref $handler );
@@ -344,16 +408,13 @@ my %action_dispatcher;
      }
      $r->set_handlers( PerlResponseHandler=>$handler );
 
-     my $pi=$MATCHED_PATH_INFO;
-     push @{$ctx->{' maptostorage'}},
-       sub {
-	 warn "PERLHANDLER: short cutting MapToStorage\n" if($DEBUG>1);
-	 unless(defined $PATH_INFO) {
-	   warn "PERLHANDLER: setting path_info to '$pi'\n" if($DEBUG>1);
-	   $PATH_INFO=$pi;
-	 }
-	 return Apache2::Const::OK;
-       };
+=cut
+
+     # some perl handler use $r->location to get some "base path", e.g.
+     # Catalyst. The only way to set this location is this.
+     #add_note(config=>'PerlResponseHandler '.$what."\t".$MATCHED_URI);
+     add_note(config=>'PerlResponseHandler '.__PACKAGE__."::response\t".$MATCHED_URI);
+     add_note(shortcut_maptostorage=>" ".$MATCHED_PATH_INFO);
 
      # Translation done: return OK instead of DECLINED
      $RC=Apache2::Const::OK;
@@ -364,17 +425,15 @@ my %action_dispatcher;
      my ($action, $what)=@_;
      $r->handler('perl-script');
      $r->set_handlers( PerlResponseHandler=>'ModPerl::Registry' );
-     $ctx->{' fixupconfig'} = [] unless( exists $ctx->{' fixupconfig'} );
-     push @{$ctx->{' fixupconfig'}},
-          ['Options ExecCGI'], ['PerlOptions +ParseHeaders'];
+     add_note(fixupconfig=>'Options ExecCGI');
+     add_note(fixupconfig=>'PerlOptions +ParseHeaders');
      return 1;
    },
 
    cgiscript=>sub {
      my ($action, $what)=@_;
      $r->handler('cgi-script');
-     $ctx->{' fixupconfig'} = [] unless( exists $ctx->{' fixupconfig'} );
-     push @{$ctx->{' fixupconfig'}}, ['Options ExecCGI'];
+     add_note(fixupconfig=>'Options ExecCGI');
      return 1;
    },
 
@@ -386,15 +445,7 @@ my %action_dispatcher;
        $real_url=handle_eval( $what );
        $proxyreq=2;		# reverse proxy
      }
-     push @{$ctx->{' fixup'}},
-       sub {
-	 warn "PROXY to $real_url\n" if($DEBUG>1);
-	 $r->proxyreq($proxyreq);
-	 $r->filename("proxy:$real_url");
-	 $r->handler('proxy-server');
-
-	 return Apache2::Const::DECLINED;
-       };
+     add_note(fixupproxy=>"$proxyreq\t$real_url");
      return 1;
    },
 
@@ -412,19 +463,21 @@ my %action_dispatcher;
 
    config=>sub {
      my ($action, $what)=@_;
-     $ctx->{' config'} = [] unless( exists $ctx->{' config'} );
-     push @{$ctx->{' config'}},
-          map {ref $_ ? $_ : [$_, $ctx->{' uri'}]}
-	      handle_eval( $what );
+     foreach my $c (handle_eval( $what )) {
+       add_note(config=>(ref $c
+			 ? "$c->[0]\t$c->[1]"
+			 : "$c\t$ctx->{' uri'}"));
+     }
      return 1;
    },
 
    fixupconfig=>sub {
      my ($action, $what)=@_;
-     $ctx->{' fixupconfig'} = [] unless( exists $ctx->{' fixupconfig'} );
-     push @{$ctx->{' fixupconfig'}},
-          map {ref $_ ? $_ : [$_, $ctx->{' uri'}]}
-	      handle_eval( $what );
+     foreach my $c (handle_eval( $what )) {
+       add_note(fixupconfig=>(ref $c
+			      ? "$c->[0]\t$c->[1]"
+			      : "$c\t$ctx->{' uri'}"));
+     }
      return 1;
    },
 
@@ -490,7 +543,7 @@ my %action_dispatcher;
 
 sub handle_action {
   my ($a)=@_;
-  if( $a=~/^(?:(\w+)(?::\s*(.+))?)|(.+)$/ ) {
+  if( $a=~/\A(?:(\w+)(?::\s*(.+))?)|(.+)\Z/s ) {
     my ($action, $what)=(defined $1 ? lc($1) : 'do',
 			 defined $1 ? $2 : $3);
 
@@ -513,11 +566,11 @@ sub process {
   my $all_skipped=1;
 
   if( $rec ) {
-    warn "State $state_names[$ctx->{' state'}]: uri = $ctx->{' uri'}\n"
+    warn "\nState $state_names[$ctx->{' state'}]: uri = $ctx->{' uri'}\n"
       if( $DEBUG==1 );
     $block=$rec->[0];
     #warn "\ncond=$cond\nblock=$block: $rec->[1]: $rec->[2]\n";
-    if( $rec->[2]=~/^COND:\s*(.+)/i ) {
+    if( $rec->[2]=~/^COND:\s*(.+)/si ) {
       warn "Action: cond: $1\n" if($DEBUG);
       $cond &&= handle_eval( $1 );
     } elsif( $cond ) {
@@ -532,7 +585,7 @@ sub process {
       $block=$rec->[0];
       $cond=1;
     }
-    if( $rec->[2]=~/^COND:\s*(.+)/i ) {
+    if( $rec->[2]=~/^COND:\s*(.+)/si ) {
       warn "Action: cond: $1\n" if($DEBUG);
       $cond &&= handle_eval( $1 );
     } elsif( $cond ) {
@@ -556,8 +609,8 @@ sub add_config {
     if( ref($el) ) {
       if( @{$el}<2 ) {
 	$el=$el->[0];
-      } elsif( !defined $el->[1] ) {
-	$el->[1]='';
+      } elsif( !length $el->[1] ) {
+	$el->[1]='/';
       }
     }
     if( ref($el) ) {
@@ -617,16 +670,24 @@ sub maptostorage {
   my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
   $r=shift;
 
-  $ctx=$r->spnotes( __PACKAGE__.'::ctx' );
   warn "\nMapToStorage\n" if( $DEBUG>1 );
 
   my $rc=Apache2::Const::DECLINED;
 
-  add_config($ctx->{' config'}) if( exists $ctx->{' config'} );
-  if( exists $ctx->{' maptostorage'} ) {
-    foreach my $sub (@{$ctx->{' maptostorage'}}) {
-      $rc=Apache2::Const::OK if( Apache2::Const::OK==$sub->() );
+  my @config=$r->notes->get(__PACKAGE__."::config");
+  if( @config ) {
+    add_config([map {my @l=split /\t/, $_, 2; @l==2 ? [@l] : $_} @config]);
+  }
+
+  my $shortcut=$r->notes->get(__PACKAGE__."::shortcut_maptostorage");
+  if( $shortcut ) {
+    warn "PERLHANDLER: short cutting MapToStorage\n" if($DEBUG>1);
+    unless(defined $r->path_info) {
+      my $pi=substr($shortcut, 1);
+      warn "PERLHANDLER: setting path_info to '$pi'\n" if($DEBUG>1);
+      $r->path_info($pi);
     }
+    $rc=Apache2::Const::OK;
   }
 
   return $rc;
@@ -636,15 +697,59 @@ sub fixup {
   my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
   $r=shift;
 
-  $ctx=$r->spnotes( __PACKAGE__.'::ctx' );
   warn "\nFixup\n" if( $DEBUG>1 );
 
-  add_config($ctx->{' fixupconfig'}) if( exists $ctx->{' fixupconfig'} );
-  foreach my $sub (@{$ctx->{' fixup'}}) {
-    $sub->();
+  my @config=$r->notes->get(__PACKAGE__."::fixupconfig");
+  if( @config ) {
+    add_config([map {my @l=split /\t/, $_, 2; @l==2 ? [@l] : $_} @config]);
+  }
+  my $proxy=$r->notes->get(__PACKAGE__."::fixupproxy");
+  if( length $proxy ) {
+    my @l=split /\t/, $proxy;
+    warn( ($l[0]==2?"REVERSE ":'')."PROXY to $l[1]\n" ) if($DEBUG>1);
+    $r->proxyreq($l[0]);
+    $r->filename("proxy:$l[1]");
+    $r->handler('proxy_server');
   }
 
   return Apache2::Const::DECLINED;
+}
+
+sub response {
+  my $r=$_[0];
+
+  my $handler;
+  my $what=$r->notes->get(__PACKAGE__."::response");
+
+  no strict 'refs';
+  $handler=(defined(&{$what})?\&{$what}:
+	    defined(&{$what.'::handler'})?\&{$what.'::handler'}:
+	    $what->can('handler')?sub {$what->handler(@_)}:
+	    $what);
+
+  goto $handler if( ref $handler eq 'CODE' );
+
+  unless( ref $handler ) {
+    # handler routine not defined yet. try to load a module
+    eval "require $handler";
+    if( $@ ) {
+      if( $handler=~s/::\w+$// ) {
+	# retry without the trailing ::handler
+	eval "require $handler";
+      }
+    }
+    $r->warn( __PACKAGE__.": Handler module $handler loaded -- consider to load it at server startup" )
+      unless( $@ );
+    $handler=(defined(&{$what})?\&{$what}:
+	      defined(&{$what.'::handler'})?\&{$what.'::handler'}:
+	      $what->can('handler')?sub {$what->handler(@_)}:
+	      $what);
+
+    goto $handler if( ref $handler eq 'CODE' );
+
+    $r->warn( __PACKAGE__.": Cannot find handler $what".($@?": $@":'') );
+  }
+  return Apache2::Const::SERVER_ERROR;
 }
 
 my @state_machine=
@@ -699,20 +804,20 @@ sub handler {
     $prov->start;
 
     while( $ctx->{' state'}!=DONE ) {
-      warn "State $state_names[$ctx->{' state'}]: uri = $ctx->{' uri'}\n"
+      warn "\nState $state_names[$ctx->{' state'}]: uri = $ctx->{' uri'}\n"
 	if( $DEBUG>1 );
       $state_machine[$ctx->{' state'}]->();
     }
 
-    if( exists $ctx->{' fixupconfig'} or exists $ctx->{' fixup'} ) {
-      $r->spnotes( __PACKAGE__.'::ctx'=>$ctx );
-      $r->push_handlers( PerlFixupHandler=>__PACKAGE__.'::fixup' );
-    }
+    $r->push_handlers( PerlFixupHandler=>__PACKAGE__.'::fixup' );
+    $r->push_handlers( PerlMapToStorageHandler=>__PACKAGE__.'::maptostorage' );
 
-    if( exists $ctx->{' config'} or exists $ctx->{' maptostorage'} ) {
-      $r->spnotes( __PACKAGE__.'::ctx'=>$ctx );
-      $r->push_handlers( PerlMapToStorageHandler=>__PACKAGE__.'::maptostorage' );
-    }
+#    if( exists $ctx->{' fixupconfig'} or exists $ctx->{' fixup'} ) {
+#      $r->pnotes->{__PACKAGE__.'::ctx'}=$ctx;
+#    }
+#    if( exists $ctx->{' config'} or exists $ctx->{' maptostorage'} ) {
+#      $r->pnotes->{__PACKAGE__.'::ctx'}=$ctx;
+#    }
 
     warn "proceed with URI '".$r->uri."' and FILENAME '".$r->filename."'\n"
       if( $DEBUG );
@@ -743,6 +848,28 @@ sub handler {
 
   return $RC if( defined $RC );
   return length $r->filename ? Apache2::Const::OK : Apache2::Const::DECLINED;
+}
+
+sub Config {
+  my $r=shift;
+
+  $cf=Apache2::Module::get_config(__PACKAGE__, $r->server);
+
+  $r->content_type('text/plain');
+
+  my $cache=$cf->{eval_cache};
+  if( tied %{$cache} ) {
+    $cache=tied( %{$cache} )->max_size;
+  } else {
+    $cache='unlimited';
+  }
+  $r->print( YAML::Dump( {
+			  TranslationKey=>$cf->{key},
+			  TranslationProvider=>$cf->{provider_param},
+			  TranslationEvalCache=>$cache,
+			 } ) );
+
+  return Apache2::Const::OK;
 }
 
 1;

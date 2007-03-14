@@ -9,7 +9,7 @@ use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
 
-plan tests=>8;
+plan tests=>7;
 
 my $data=<<'EOD';
 #id	xkey	xuri		xblock	xorder	xaction
@@ -75,14 +75,11 @@ my $o=Apache2::Translation::DB->new
   (
    database=>$db, user=>$user, passwd=>$pw,
    table=>'trans', key=>'xkey', uri=>'xuri', block=>'xblock',
-   order=>'xorder', action=>'xaction',
+   order=>'xorder', action=>'xaction', id=>'id',
    cachesize=>1000, cachetbl=>'cache', cachecol=>'v',
   );
 
 ok $o, n 'provider object';
-
-$o->child_init;
-cmp_deeply $o->singleton, 1, n 'is singleton';
 
 $o->start;
 cmp_deeply $o->_cache_version, 1, n 'cache version is 1';
@@ -93,15 +90,16 @@ $dbh->do('UPDATE cache SET v=v+1');
 $o->start;
 cmp_deeply $o->_cache_version, 2, n 'cache version is 2';
 cmp_deeply [$o->fetch('k1', 'u1')],
-           [['0', '0', 'a'], ['0', '1', 'b'], ['1', '0', 'c']],
+           [['0', '0', 'a', '0'], ['0', '1', 'b', '1'], ['1', '0', 'c', '2']],
            n 'fetch uri u1';
 $dbh->do('DELETE FROM trans WHERE id=0');
 $dbh->do('UPDATE cache SET v=v+1');
 cmp_deeply [$o->fetch('k1', 'u1')],
-           [['0', '0', 'a'], ['0', '1', 'b'], ['1', '0', 'c']],
+           [['0', '0', 'a', '0'], ['0', '1', 'b', '1'], ['1', '0', 'c', '2']],
            n 'same result after update';
 $o->stop;
 
+$o->id=undef;	       	# check that no id is delivered if this is unset
 $o->start;
 cmp_deeply $o->_cache_version, 3, n 'cache version is 3 after another $o->start';
 cmp_deeply [$o->fetch('k1', 'u1')],

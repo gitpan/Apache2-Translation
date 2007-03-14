@@ -8,9 +8,14 @@ use Apache2::Const -compile=>qw{OK};
 
 sub handler {
   my $r=shift;
+  my $class;
+  unless( $class=ref $r ) {
+    $class=$r;
+    $r=shift;
+  }
   $r->content_type('text/plain');
 
-  $r->print( $INC{'TestHandler.pm'} );
+  $r->print( $class );
 
   return Apache2::Const::OK;
 }

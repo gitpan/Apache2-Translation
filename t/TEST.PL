@@ -9,9 +9,9 @@ use lib map {("../blib/$_", "../../blib/$_")} qw(lib arch);
 my ($db,$user,$pw)=@ENV{qw/DB USER PW/};
 
 if( defined $db and length $db ) {
-  warn "Using Database $db\n";
+  warn "# Using Database $db\n";
 } else {
-  warn "Using Database dbi:SQLite:t/test.sqlite\n";
+  warn "# Using Database dbi:SQLite:t/test.sqlite\n";
 }
 
 package MyTest;
@@ -38,14 +38,42 @@ sub new_test_config {
     die "ERROR: Cannot write to $confdir/db.inc: $!\n";
   do {
     no warnings 'uninitialized';
-    print $f <<"EOF";
+    if( $ENV{INTERP_SCOPE} ) {
+      warn "# Using PerlInterpScope $ENV{INTERP_SCOPE}\n";
+      print $f <<"EOF";
+<IfModule worker.c>
+    PerlInterpScope $ENV{INTERP_SCOPE}
+</IfModule>
+EOF
+    }
+    if( $ENV{OLD_INTERFACE} ) {
+      print $f <<"EOF";
 TranslationProvider DB \\
-		    "database=$db" \\
-		    "user=$user" "password=$pw" \\
+		    "Database=$db" \\
+		    "User=$user" "Password=$pw" \\
 		    table=trans \\
-		    key=xkey uri=xuri block=xblock order=xorder action=xaction \\
+		    key=xkey uri=xuri block=xblock order=xorder action=xaction id=id \\
 		    cachetbl=cache cachecol=v singleton=1
 EOF
+    } else {
+    print $f <<"EOF";
+<TranslationProvider DB>
+    Database  "$db"
+    User      "$user"
+    Password  "$pw"
+    Table     trans
+    Id        id
+    Key       xkey
+    Uri       xuri
+    Block     xblock
+    Order     xorder
+    Action    xaction
+    Cachetbl  cache
+    Cachecol  v
+    Singleton 1
+</TranslationProvider>
+EOF
+    }
   };
   close $f or
     die "ERROR: Cannot write to $confdir/db.inc: $!\n";

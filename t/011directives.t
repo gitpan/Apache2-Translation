@@ -5,13 +5,29 @@ use Test::More;
 use Apache::Test qw{:withtestmore};
 use Apache::TestUtil;
 use Apache::TestUtil qw/t_write_shell_script t_write_perl_script/;
-use Apache::TestRequest qw{GET_BODY GET};
+use Apache::TestRequest qw{GET_BODY GET GET_RC};
 use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
 
-plan tests=>12;
+plan tests=>14;
 #plan 'no_plan';
+
+{
+  my $f;
+  sub t_start_error_log_watch {
+    my $name=File::Spec->catfile( Apache::Test::vars->{t_logs}, 'error_log' );
+    open $f, "$name" or die "ERROR: Cannot open $name: $!\n";
+    seek $f, 0, 2;
+  }
+
+  sub t_finish_error_log_watch {
+    local $/="\n";
+    my @lines=<$f>;
+    undef $f;
+    return @lines;
+  }
+}
 
 my $serverroot=Apache::Test::vars->{serverroot};
 my $documentroot=Apache::Test::vars->{documentroot};
@@ -37,12 +53,12 @@ SQL
 1	default	:PRE:	0	1	Key: 'k'
 EOD
 
-  foreach my $l (grep !/^\s*#/, split /\n/, $header) {
+  foreach my $l (grep !/^\s*#/, split /\n+/, $header) {
     $stmt->execute(split /\t+/, $l);
   }
 
   if( defined $data and length $data ) {
-    foreach my $l (grep !/^\s*#/, split /\n/, $data) {
+    foreach my $l (grep !/^\s*#/, split /\n+/, $data) {
       $stmt->execute(split /\t+/, $l);
     }
   }
@@ -89,21 +105,40 @@ Apache::TestRequest::user_agent(reset => 1, requests_redirectable => 0);
 $data=<<'EOD';
 #id	xkey	xuri	xblock	xorder	xaction
 #                                       a subsequent mod_alias handler maps /ALIAS do DOC_ROOT/alias
+
 10	k	/alias	0	0	Uri: '/ALIAS'.$MATCHED_PATH_INFO
+
 11	k	/file	0	0	File: $r->document_root.$MATCHED_PATH_INFO
+
 12	k	/cgi	0	0	Cgiscript
 13	k	/cgi	0	1	File: $r->document_root.$MATCHED_PATH_INFO
+
 14	k	/perl	0	0	Perlscript
 15	k	/perl	0	1	File: $r->document_root.$MATCHED_PATH_INFO
+
 16	k	/tsthnd	0	0	Perlhandler: 'TestHandler'
+
 17	k	/tstp	0	0	Perlhandler: 'TestHandler::pathinfo'
-18	k	/conf	0	0	Perlhandler: 'TestConfig'
-19	k	/conf/1	0	0	Config: 'TestHandlerConfig 1'
-20	k	/conf/2	0	0	Config: ['TestHandlerConfig 1']
-21	k	/conf/3	0	0	Config: ['TestHandlerConfig 1', '/path']
-22	k	/conf/4	0	0	Config: ['TestHandlerConfig 1', '']
+
+18	k	/tstm	0	0	Perlhandler: 'TestModule'
+
+19	k	/conf	0	0	Perlhandler: 'TestConfig'
+
+20	k	/conf/1	0	0	Config: 'TestHandlerConfig 1'
+
+21	k	/conf/2	0	0	Config: ['TestHandlerConfig 2']
+
+22	k	/conf/3	0	0	Config: ['TestHandlerConfig 3', '/path']
+
 23	k	/proxy	0	0	Proxy: 'http://'.join(':', $r->get_server_name, $r->get_server_port).'/tstp'.$MATCHED_PATH_INFO
-24	k	/proxy	0	1	Config: ['LogLevel warn', '']
+
+24	k	/cgi2	0	0	Config: 'AllowOverride AuthConfig', 'Options FollowSymLinks'
+25	k	/cgi2	0	1	Config: 'SetHandler cgi-script'
+26	k	/cgi2	0	2	File: $r->document_root.$MATCHED_PATH_INFO
+
+27	k	/cgi3	0	0	Config: 'AllowOverride Options', 'Options FollowSymLinks'
+28	k	/cgi3	0	1	Config: 'SetHandler cgi-script'
+29	k	/cgi3	0	2	File: $r->document_root.$MATCHED_PATH_INFO
 EOD
 update_db;
 
@@ -120,26 +155,45 @@ SKIP: {
 ok t_cmp GET_BODY( '/file/ok.html' ), 'OK', n '/file/ok.html';
 
 SKIP: {
-  skip "Need cgi module", 1 unless( need_module( 'cgi' ) );
+  skip "Need cgi module", 1 unless( need_module( 'cgi' ) or need_module( 'cgid' ) );
   ok t_cmp GET_BODY( '/cgi/script.pl' ), qr!^CGI/!, n '/cgi/script.pl';
 }
 
 ok t_cmp GET_BODY( '/perl/script.pl' ), qr!^mod_perl/!, n '/perl/script.pl';
 
 t_client_log_warn_is_expected();
-ok t_cmp GET_BODY( '/tsthnd' ), $serverroot.'/pm/TestHandler.pm', n '/tsthnd';
+ok t_cmp GET_BODY( '/tsthnd' ), 'Apache2::RequestRec', n '/tsthnd';
+
+t_client_log_warn_is_expected();
+ok t_cmp GET_BODY( '/tstm' ), 'TestModule', n '/tstm';
 
 ok t_cmp GET_BODY( '/tstp/path/info' ), '/path/info', n '/tstp/path/info';
 
 ok t_cmp GET_BODY( '/conf/1' ), '/conf/1', n '/conf/1';
 ok t_cmp GET_BODY( '/conf/2' ), '/', n '/conf/2';
 ok t_cmp GET_BODY( '/conf/3' ), '/path', n '/conf/3';
-ok t_cmp GET_BODY( '/conf/4' ), 'UNDEF', n '/conf/4';
 
 SKIP: {
   skip "Need proxy and proxy_http modules", 1 unless( need_module( ['proxy','proxy_http'] ) );
   t_client_log_warn_is_expected();
   ok t_cmp GET_BODY( '/proxy/path/info' ), '/path/info', n '/proxy/path/info';
+}
+
+SKIP: {
+  skip "Need cgi module", 1 unless( need_module( 'cgi' ) or need_module( 'cgid' ) );
+  t_write_file( $documentroot.'/.htaccess', "Options ExecCGI\n" );
+  t_client_log_error_is_expected();
+  ok t_cmp GET_RC( '/cgi2/script.pl' ), 500, n '/cgi2/script.pl';
+
+  t_start_error_log_watch;
+  my $body=GET_BODY( '/cgi3/script.pl' );
+  my @lines=t_finish_error_log_watch;
+  if(grep /\.htaccess: Option ExecCGI not allowed here/, @lines) {
+    warn "\n\n# WARNING: Your httpd is buggy.\n# See http://www.gossamer-threads.com/lists/apache/dev/327770#327770\n\n";
+    ok 1, n '/cgi3/script.pl';
+  } else {
+    ok t_cmp $body, qr!^CGI/!, n '/cgi3/script.pl';
+  }
 }
 
 $dbh->do('DELETE FROM trans');

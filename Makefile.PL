@@ -13,8 +13,12 @@ ModPerl::MM::WriteMakefile(
   VERSION_FROM      => 'lib/Apache2/Translation.pm',
   PREREQ_PM         => {
 			mod_perl2=>0,
+			'Perl::AtEndOfScope'=>0,
+			'DBI'=>0,
+			'Class::Member'=>1.3,
+			'Tie::Cache::LRU'=>0.21,
 			'Test::Deep'=>0,
-			'Apache2::SetOptions'=>0,
+			'Template'=>2.15,
 		       },
   ABSTRACT_FROM     => 'lib/Apache2/Translation.pod',
   AUTHOR            => 'Torsten Foertsch <torsten.foertsch@gmx.net>',
