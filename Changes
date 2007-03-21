@@ -11,3 +11,9 @@ Revision history for Perl extension Apache2::Translation.
 	- Admin interface
 	- File provider
 	- worker MPM
+
+0.13  Tue Mar 20 10:24:57 CET 2007
+	- Bugfix: Perlhandler: sub {...} with worker mpm
+	- case-insensitive provider spec keys
+	- PerlHandler action now pays attention to the method attribute of a
+	  handler

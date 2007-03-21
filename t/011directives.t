@@ -10,7 +10,7 @@ use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
 
-plan tests=>14;
+plan tests=>15;
 #plan 'no_plan';
 
 {
@@ -122,23 +122,25 @@ $data=<<'EOD';
 
 18	k	/tstm	0	0	Perlhandler: 'TestModule'
 
-19	k	/conf	0	0	Perlhandler: 'TestConfig'
+19	k	/tstsub	0	0	Perlhandler: sub {TestModule->handler(@_)}
 
-20	k	/conf/1	0	0	Config: 'TestHandlerConfig 1'
+20	k	/conf	0	0	Perlhandler: 'TestConfig'
 
-21	k	/conf/2	0	0	Config: ['TestHandlerConfig 2']
+21	k	/conf/1	0	0	Config: 'TestHandlerConfig 1'
 
-22	k	/conf/3	0	0	Config: ['TestHandlerConfig 3', '/path']
+22	k	/conf/2	0	0	Config: ['TestHandlerConfig 2']
 
-23	k	/proxy	0	0	Proxy: 'http://'.join(':', $r->get_server_name, $r->get_server_port).'/tstp'.$MATCHED_PATH_INFO
+23	k	/conf/3	0	0	Config: ['TestHandlerConfig 3', '/path']
 
-24	k	/cgi2	0	0	Config: 'AllowOverride AuthConfig', 'Options FollowSymLinks'
-25	k	/cgi2	0	1	Config: 'SetHandler cgi-script'
-26	k	/cgi2	0	2	File: $r->document_root.$MATCHED_PATH_INFO
+24	k	/proxy	0	0	Proxy: 'http://'.join(':', $r->get_server_name, $r->get_server_port).'/tstp'.$MATCHED_PATH_INFO
 
-27	k	/cgi3	0	0	Config: 'AllowOverride Options', 'Options FollowSymLinks'
-28	k	/cgi3	0	1	Config: 'SetHandler cgi-script'
-29	k	/cgi3	0	2	File: $r->document_root.$MATCHED_PATH_INFO
+25	k	/cgi2	0	0	Config: 'AllowOverride AuthConfig', 'Options FollowSymLinks'
+26	k	/cgi2	0	1	Config: 'SetHandler cgi-script'
+27	k	/cgi2	0	2	File: $r->document_root.$MATCHED_PATH_INFO
+
+28	k	/cgi3	0	0	Config: 'AllowOverride Options', 'Options FollowSymLinks'
+29	k	/cgi3	0	1	Config: 'SetHandler cgi-script'
+30	k	/cgi3	0	2	File: $r->document_root.$MATCHED_PATH_INFO
 EOD
 update_db;
 
@@ -162,10 +164,11 @@ SKIP: {
 ok t_cmp GET_BODY( '/perl/script.pl' ), qr!^mod_perl/!, n '/perl/script.pl';
 
 t_client_log_warn_is_expected();
-ok t_cmp GET_BODY( '/tsthnd' ), 'Apache2::RequestRec', n '/tsthnd';
+ok t_cmp GET_BODY( '/tsthnd' ), 'TestHandler', n '/tsthnd';
 
-t_client_log_warn_is_expected();
+t_client_log_warn_is_expected(2);
 ok t_cmp GET_BODY( '/tstm' ), 'TestModule', n '/tstm';
+ok t_cmp GET_BODY( '/tstsub' ), 'TestModule', n '/tstsub';
 
 ok t_cmp GET_BODY( '/tstp/path/info' ), '/path/info', n '/tstp/path/info';
 

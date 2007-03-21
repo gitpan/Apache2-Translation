@@ -73,10 +73,10 @@ BEGIN{use_ok 'Apache2::Translation::DB'}
 
 my $o=Apache2::Translation::DB->new
   (
-   database=>$db, user=>$user, passwd=>$pw,
-   table=>'trans', key=>'xkey', uri=>'xuri', block=>'xblock',
-   order=>'xorder', action=>'xaction', id=>'id',
-   cachesize=>1000, cachetbl=>'cache', cachecol=>'v',
+   Database=>$db, User=>$user, Passwd=>$pw,
+   Table=>'trans', Key=>'xkey', Uri=>'xuri', Block=>'xblock',
+   Order=>'xorder', Action=>'xaction', Id=>'id',
+   CacheSize=>1000, CacheTbl=>'cache', CacheCol=>'v',
   );
 
 ok $o, n 'provider object';

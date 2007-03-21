@@ -19,7 +19,8 @@ sub new {
   my $parent=shift;
   my $class=ref($parent) || $parent;
   my $I=bless {}=>$class;
-  my %o=@_;
+  my $x=0;
+  my %o=map {($x=!$x) ? lc($_) : $_} @_;
 
   if( ref($parent) ) {         # inherit first
     foreach my $m (@CLASS_MEMBERS) {

@@ -36,7 +36,7 @@ utime $time, $time, $conf;
 
 my $o=Apache2::Translation::File->new
   (
-   configfile=>$conf,
+   ConfigFile=>$conf,
   );
 
 ok $o, n 'provider object';

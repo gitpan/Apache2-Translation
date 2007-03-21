@@ -16,6 +16,7 @@ use Apache2::Directive;
 use Apache2::Module;
 use Apache2::Log;
 use APR::Table;
+use attributes;
 use Apache2::Const -compile=>qw{:common :http
 				:conn_keepalive
 				:methods
@@ -29,7 +30,7 @@ use Apache2::Const -compile=>qw{:common :http
 use Perl::AtEndOfScope;
 use YAML ();
 
-our $VERSION = '0.12';
+our $VERSION = '0.13';
 
 our ($cf,$r,$ctx);
 sub undef_cf_r_ctx {undef $_ for ($cf,$r,$ctx);}
@@ -372,7 +373,6 @@ my %action_dispatcher;
 
    perlhandler=>sub {
      my ($action, $what)=@_;
-     $what=handle_eval( $what );
      add_note(response=>$what);
      $r->handler('modperl')
        unless( $r->handler=~/^(?:modperl|perl-script)$/ );
@@ -720,6 +720,7 @@ sub response {
 
   my $handler;
   my $what=$r->notes->get(__PACKAGE__."::response");
+  $what=handle_eval( $what );
 
   no strict 'refs';
   $handler=(defined(&{$what})?\&{$what}:
@@ -727,7 +728,10 @@ sub response {
 	    $what->can('handler')?sub {$what->handler(@_)}:
 	    $what);
 
-  goto $handler if( ref $handler eq 'CODE' );
+  if( ref $handler eq 'CODE' ) {
+    unshift @_, $what if( grep $_ eq 'method', attributes::get($handler) );
+    goto $handler;
+  }
 
   unless( ref $handler ) {
     # handler routine not defined yet. try to load a module
@@ -745,7 +749,10 @@ sub response {
 	      $what->can('handler')?sub {$what->handler(@_)}:
 	      $what);
 
-    goto $handler if( ref $handler eq 'CODE' );
+    if( ref $handler eq 'CODE' ) {
+      unshift @_, $what if( grep $_ eq 'method', attributes::get($handler) );
+      goto $handler;
+    }
 
     $r->warn( __PACKAGE__.": Cannot find handler $what".($@?": $@":'') );
   }

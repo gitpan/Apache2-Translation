@@ -6,16 +6,12 @@ use Apache2::RequestIO;
 use Apache2::RequestUtil;
 use Apache2::Const -compile=>qw{OK};
 
-sub handler {
-  my $r=shift;
-  my $class;
-  unless( $class=ref $r ) {
-    $class=$r;
-    $r=shift;
-  }
+sub handler : method {
+  my ($c,$r)=@_;
+
   $r->content_type('text/plain');
 
-  $r->print( $class );
+  $r->print( $c );
 
   return Apache2::Const::OK;
 }
