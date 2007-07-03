@@ -9,7 +9,8 @@ use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
 
-plan tests=>7;
+plan tests=>17;
+#plan 'no_plan';
 
 my $data=<<'EOD';
 #id	xkey	xuri		xblock	xorder	xaction
@@ -47,7 +48,7 @@ SQL
 
   eval {
     $dbh->do( <<'SQL' );
-CREATE TABLE trans ( id int, xkey text, xuri text, xblock int, xorder int, xaction text )
+CREATE TABLE trans ( id int, xkey text, xuri text, xblock int, xorder int, xaction text, xnotes text )
 SQL
   } or $dbh->do( <<'SQL' );
 DELETE FROM trans
@@ -60,6 +61,14 @@ SQL
   foreach my $l (grep !/^\s*#/, split /\n/, $data) {
     $stmt->execute(split /\t+/, $l);
   }
+
+  eval {
+    $dbh->do( <<'SQL' );
+CREATE TABLE sequences ( xname text, xvalue int )
+SQL
+  } or $dbh->do( <<'SQL' );
+DELETE FROM sequences WHERE xname='id'
+SQL
 }
 
 prepare_db;
@@ -69,7 +78,7 @@ sub n {my @c=caller; $c[1].'('.$c[2].'): '.$_[0];}
 ## the real tests begin here                                        ##
 ######################################################################
 
-BEGIN{use_ok 'Apache2::Translation::DB'}
+use Apache2::Translation::DB;
 
 my $o=Apache2::Translation::DB->new
   (
@@ -80,6 +89,8 @@ my $o=Apache2::Translation::DB->new
   );
 
 ok $o, n 'provider object';
+
+ok tied(%{$o->_cache}), n 'tied cache';
 
 $o->start;
 cmp_deeply $o->_cache_version, 1, n 'cache version is 1';
@@ -105,9 +116,83 @@ cmp_deeply $o->_cache_version, 3, n 'cache version is 3 after another $o->start'
 cmp_deeply [$o->fetch('k1', 'u1')],
            [['0', '1', 'b'], ['1', '0', 'c']],
            n 'fetch uri u1 after another $o->start';
+cmp_deeply [$o->fetch('unknown', 'unknown')], [],
+           n 'fetch unknown key/uri pair';
+cmp_deeply exists( $o->_cache->{"unknown\0unknown"} )||0, 0,
+           n 'cache state after fetching unknown key/uri pair';
+$o->stop;
+
+$o=Apache2::Translation::DB->new
+  (
+   Database=>$db, User=>$user, Passwd=>$pw,
+   Table=>'trans', Key=>'xkey', Uri=>'xuri', Block=>'xblock',
+   Order=>'xorder', Action=>'xaction', Id=>'id', Notes=>'xnotes',
+   CacheSize=>1000, CacheTbl=>'cache', CacheCol=>'v',
+   SeqTbl=>'sequences', SeqNameCol=>'xname', SeqValCol=>'xvalue',
+   IdSeqName=>'id',
+  );
+
+$o->start;
+cmp_deeply [$o->fetch('k1', 'u1', 1)],
+           [['0', '1', 'b', '1', ''], ['1', '0', 'c', '2', '']],
+           n 'fetch with notes';
+
+$o->begin;
+$o->update( ["k1", "u1", 1, 0, 2],
+	    ["k1", "u1", 1, 2, "new action", 'note on 2'] );
+$o->commit;
+
+cmp_deeply [$o->fetch('k1', 'u1', 1)],
+           [['0', '1', 'b', '1', ''], ['1', '2', 'new action', '2', 'note on 2']],
+           n 'fetch changed notes';
+
+eval {
+  $o->begin;
+  $o->insert([qw/k2 u1 1 2 inserted_action a_note/]);
+  $o->commit;
+} or $o->rollback;
+cmp_deeply $@, "ERROR: sequences table not set up: missing row with xname=id\n",
+           n 'sequences table not set up';
+
+$dbh->do( <<'SQL' );
+INSERT INTO sequences (xname, xvalue) VALUES ('id', 10)
+SQL
+
+eval {
+  $o->begin;
+  $o->insert([qw/k2 u1 1 2 inserted_action a_note/]);
+  $o->commit;
+};
+cmp_deeply $@, '', n 'sequences table set up';
+
+cmp_deeply [$o->fetch('k2', 'u1', 1)],
+           [['1', '2', 'inserted_action', '10', 'a_note']],
+           n 'fetch with notes';
+
+cmp_deeply [$o->dump],
+           [['k1', 'u1', '0', '1', 'b', ''],
+	    ['k1', 'u1', '1', '2', 'new action', 'note on 2'],
+	    ['k1', 'u2', '0', '0', 'd', ''],
+	    ['k1', 'u2', '1', '0', 'e', ''],
+	    ['k1', 'u2', '1', '1', 'f', ''],
+	    ['k2', 'u1', '1', '2', 'inserted_action', 'a_note']
+	   ],
+           n 'dump';
+
+$o->restore(['k2', 'u1', '2', '0', 'restored_1', 'note_1'],
+	    ['k2', 'u1', '2', '1', 'restored_2', 'note_2']);
+
+cmp_deeply [$o->fetch('k2', 'u1', 1)],
+           [['1', '2', 'inserted_action', '10', 'a_note'],
+	    ['2', '0', 'restored_1', '11', 'note_1'],
+	    ['2', '1', 'restored_2', '12', 'note_2']],
+           n 'fetch after restore';
+
+
 $o->stop;
 
 undef $o;
+
 $dbh->disconnect;
 
 __END__

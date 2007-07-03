@@ -6,10 +6,11 @@ use warnings;
 no warnings qw(uninitialized);
 
 use Fcntl qw/:DEFAULT :flock/;
-use Class::Member::HASH -CLASS_MEMBERS=>qw/configfile _cache _timestamp/;
+use Class::Member::HASH -CLASS_MEMBERS=>qw/configfile notesdir
+					   _cache _timestamp/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 sub new {
   my $parent=shift;
@@ -74,18 +75,16 @@ sub start {
     my $l;
     my $cache=$I->_cache;
     while( defined( $l=_in $f ) ) {
-      chomp $l;
-      next if( $l=~/^\s*#/ );	# comment
-      $l=~s/^\s*//;
       if( $l=~s!^>>>\s*!! ) {	# new key line found
+	chomp $l;
 	my @l=split /\s+/, $l, 5;
 	if( @l==5 ) {
 	  my $k=join("\0",@l[1,2]);
 
 	  my $a='';
 	  while( defined( $l=_in $f ) ) {
-	    next if( $l=~/^\s*#/ );	# comment
-	    if( $l=~m!^\s*>>>! ) {	# new key line found
+	    next if( $l=~/^#/ );	# comment
+	    if( $l=~m!^>>>! ) {		# new key line found
 	      _unin $f, $l;
 	      last;
 	    } else {
@@ -94,6 +93,8 @@ sub start {
 	  }
 	  chomp $a;
 
+	  # cache element:
+	  # [block, order, action, id, key, uri]
 	  if( exists $cache->{$k} ) {
 	    push @{$cache->{$k}}, [@l[3..4],$a,@l[0..2]];
 	  } else {
@@ -113,10 +114,29 @@ sub stop {}
 
 sub fetch {
   my $I=shift;
-  my ($key, $uri)=@_;
+  my ($key, $uri, $with_notes)=@_;
 
-  return map {[@{$_}[0..3]]} @{$I->_cache->{join "\0", $key, $uri} || []};
+  # cache element:
+  # [block, order, action, id, key, uri]
+  if( $with_notes and length $I->notesdir ) {
+    # return element:
+    # [block order, action, id, notes]
+    local $/;
+    return map {[@{$_}[0..3], do {
+      my $content='';
+      my $f=undef;
+      open $f, $I->notesdir.'/'.$_->[3] and $content=<$f>;
+      close $f;
+      $content;
+    }]} @{$I->_cache->{join "\0", $key, $uri} || []};
+  } else {
+    # return element:
+    # [block order, action, id]
+    return map {[@{$_}[0..3]]} @{$I->_cache->{join "\0", $key, $uri} || []};
+  }
 }
+
+sub can_notes {length $_[0]->notesdir;}
 
 sub list_keys {
   my $I=shift;
@@ -142,8 +162,7 @@ sub list_keys_and_uris {
   }
 }
 
-sub begin {
-}
+sub begin {}
 
 sub commit {
   my $I=shift;
@@ -182,16 +201,37 @@ sub commit {
     foreach my $el (sort {$a->[0] <=> $b->[0] or $a->[1] <=> $b->[1]} @{$v}) {
       printf $fh $fmt, @{$el}[3..5,0..2] or
 	do {close $fh; die "ERROR: Cannot write to ".$I->configfile.": $!\n"};
+      if( $I->notesdir and length $el->[6] ) {
+	my $notesf=undef;
+	if( open $notesf, '>'.$I->notesdir.'/'.$el->[3] ) {
+	  print $notesf $el->[6];
+	  close $notesf;
+	} else {
+	  warn "WARNING: Cannot open ".$I->notesdir."/$el->[3]: $!\n";
+	}
+      }
+      $#{$el}=5;
     }
   }
 
-  select( (select( $fh ), $|=1)[0] );  # write buffer
+  select( (select( $fh ), $|=1)[0] );  # flush buffer
 
   my $time=time;
   $time=$oldtime+1 if( $time<=$oldtime );
 
   utime( $time, $time, $I->configfile );
   $I->_timestamp=$time;
+
+  if( length $I->notesdir ) {
+    opendir my $d, $I->notesdir;
+    if( $d ) {
+      my %h=map {($_->[3]=>1)} map {@$_} values %{$I->_cache};
+      while( my $el=readdir $d ) {
+	unlink $I->notesdir.'/'.$el if( $el=~/^\d+$/ and !exists $h{$el} );
+      }
+      closedir $d;
+    }
+  }
 
   close $fh or die "ERROR: Cannot write to ".$I->configfile.": $!\n";
 
@@ -211,12 +251,14 @@ sub update {
 
   my $list=$I->_cache->{join "\0", @{$old}[0,1]};
   return "0 but true" unless( $list );
+
   if( $old->[0] eq $new->[0] and $old->[1] eq $new->[1] ) {
+    # KEY and URI have not changed
     for( my $i=0; $i<@{$list}; $i++ ) {
       if( $list->[$i]->[3]==$old->[4] and # id
 	  $list->[$i]->[0]==$old->[2] and # block
 	  $list->[$i]->[1]==$old->[3] ) { # order
-	@{$list->[$i]}[0..2]=@{$new}[2..4];
+	@{$list->[$i]}[0..2,6]=@{$new}[2..5];
 	@{$list}=sort {$a->[0] <=> $b->[0] or $a->[1] <=> $b->[1]} @{$list};
 	return 1;
       }
@@ -231,7 +273,7 @@ sub update {
 	  $list->[$i]->[1]==$old->[3] ) { # order
 	my ($el)=splice @{$list}, $i, 1;
 	delete $I->_cache->{join "\0", @{$old}[0,1]} unless( @{$list} );
-	@{$el}[4,5,0..2]=@{$new}[0..4];
+	@{$el}[4,5,0..2,6]=@{$new}[0..5];
 	my $k=join("\0",@{$new}[0,1]);
 	if( exists $I->_cache->{$k} ) {
 	  push @{$I->_cache->{$k}}, $el;
@@ -262,7 +304,7 @@ sub insert {
   }
   $newid++;
 
-  my $newel=[@{$new}[2..4], $newid, @{$new}[0,1]];
+  my $newel=[@{$new}[2..4], $newid, @{$new}[0,1,5]];
 
   my $k=join("\0",@{$new}[0,1]);
   if( exists $I->_cache->{$k} ) {
@@ -295,8 +337,56 @@ sub delete {
   return "0 but true";
 }
 
-sub DESTROY {
+sub dump {
+  my $I=shift;
+
+  # cache element:
+  # [block, order, action, id, key, uri]
+  if( length $I->notesdir ) {
+    # return element:
+    # [key, uri, block order, action, notes]
+    local $/;
+    return map {[@{$_}[4,5,0..2], do {
+      my $content='';
+      my $f=undef;
+      open $f, $I->notesdir.'/'.$_->[3] and $content=<$f>;
+      close $f;
+      $content;
+    }]} sort {
+      $a->[4] cmp $b->[4] or
+      $a->[5] cmp $b->[5] or
+      $a->[0] cmp $b->[0] or
+      $a->[1] cmp $b->[1];
+    } map {@{$_}} values %{$I->_cache};
+  } else {
+    # return element:
+    # [key, uri, block order, action, '']
+    return map {[@{$_}[4,5,0..2], '']} sort {
+      $a->[4] cmp $b->[4] or
+      $a->[5] cmp $b->[5] or
+      $a->[0] cmp $b->[0] or
+      $a->[1] cmp $b->[1];
+    } map {@{$_}} values %{$I->_cache};
+  }
 }
+
+sub restore {
+  my $I=shift;
+
+  eval {
+    $I->begin;
+    foreach my $el (@_) {
+      $I->insert($el);
+    }
+    $I->commit;
+  };
+  if( $@ ) {
+    warn "$@";
+    $I->rollback;
+  }
+}
+
+sub DESTROY {}
 
 1;
 __END__

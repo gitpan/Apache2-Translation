@@ -7,13 +7,16 @@ no warnings qw(uninitialized);
 
 use DBI;
 use Class::Member::HASH -CLASS_MEMBERS=>qw/database user password table
-					   key uri block order action
+					   key uri block order action notes
 					   cachesize cachetbl cachecol
 					   singleton id is_initialized
-					   _cache _cache_version _dbh _stmt/;
+					   seqtbl seqnamecol seqvalcol
+					   idseqname
+					   _existing_keys
+					   _cache _cache_version _dbh/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 sub new {
   my $parent=shift;
@@ -68,7 +71,6 @@ sub start {
 
 sub stop {
   my $I=shift;
-  undef $I->_stmt;
   undef $I->_dbh if( !$I->singleton and
 		     ($I->_dbh->isa( 'Apache::DBI::Cache::db' ) or
 		      $I->_dbh->isa( 'Apache::DBI::db' )) );
@@ -91,6 +93,16 @@ SQL
   unless( $cache_version eq $I->_cache_version ) {
     %{$I->_cache}=();
     $I->_cache_version=$cache_version;
+
+    my ($tbl, $key, $uri)=map {$I->$_} qw/table key uri/;
+    $sql=<<"SQL";
+SELECT DISTINCT $key, $uri FROM $tbl
+SQL
+
+    $stmt=$I->_dbh->prepare_cached( $sql );
+    $stmt->execute;
+    $I->_existing_keys=+{map {("$_->[0]\0$_->[1]"=>1)}
+			 @{$stmt->fetchall_arrayref}};
   }
 
   return 1;
@@ -98,14 +110,34 @@ SQL
 
 sub fetch {
   my $I=shift;
-  my ($key, $uri)=@_;
+  my ($key, $uri, $with_notes)=@_;
 
-  my $ref=$I->_cache->{"$key\0$uri"};
+  my $ref;
+  my ($id_col, $notes_col)=($I->id, $I->notes);
+  if( $with_notes and length $notes_col and length $id_col ) {
+    my ($table_name,$key_col,$uri_col,$block_col,$order_col,$action_col)=
+      map {$I->$_} qw/table key uri block order action/;
 
-  unless( defined $ref ) {
-    unless( defined $I->_stmt ) {
-      my ($table_name,$key_col,$uri_col,$block_col,$order_col,$action_col,
-	  $id_col)= map {$I->$_} qw/table key uri block order action id/;
+    my $sql=<<"SQL";
+SELECT $block_col, $order_col, $action_col, $id_col, $notes_col
+FROM $table_name
+WHERE $key_col=?
+  AND $uri_col=?
+ORDER BY $block_col ASC, $order_col ASC
+SQL
+
+    my $stmt=$I->_dbh->prepare( $sql );
+    $stmt->execute( $key, $uri );
+    $ref=$stmt->fetchall_arrayref;
+    map {defined $_->[4] ? 1 : ($_->[4]='')} @{$ref};
+  } else {
+    my $k="$key\0$uri";
+    return unless( exists $I->_existing_keys->{$k} );
+
+    $ref=$I->_cache->{$k};
+    unless( defined $ref ) {
+      my ($table_name,$key_col,$uri_col,$block_col,$order_col,$action_col)=
+	map {$I->$_} qw/table key uri block order action/;
 
       my $sql=<<"SQL";
 SELECT $block_col, $order_col, $action_col@{[length $id_col ? ", $id_col" : ""]}
@@ -115,17 +147,17 @@ WHERE $key_col=?
 ORDER BY $block_col ASC, $order_col ASC
 SQL
 
-      $I->_stmt=$I->_dbh->prepare_cached( $sql );
+      my $stmt=$I->_dbh->prepare_cached( $sql );
+      $stmt->execute( $key, $uri );
+      $ref=$stmt->fetchall_arrayref;
+
+      $I->_cache->{"$key\0$uri"}=$ref;
     }
-
-    $I->_stmt->execute( $key, $uri );
-    $ref=$I->_stmt->fetchall_arrayref||[];
-
-    $I->_cache->{"$key\0$uri"}=$ref;
   }
-
   return @{$ref};
 }
+
+sub can_notes {length $_[0]->notes;}
 
 sub list_keys {
   my $I=shift;
@@ -185,6 +217,7 @@ SQL
 
   $stmt=$I->_dbh->prepare_cached( $sql );
   $stmt->execute;
+  $stmt->finish;
 
   $I->_dbh->commit;
 }
@@ -200,9 +233,30 @@ sub update {
   my $new=shift;
 
   my ($table_name,$key_col,$uri_col,$block_col,$order_col,$action_col,
-      $id_col)= map {$I->$_} qw/table key uri block order action id/;
-  my $stmt;
-  my $sql=<<"SQL";
+      $id_col, $notes_col)=
+	map {$I->$_} qw/table key uri block order action id notes/;
+  my ($stmt, $sql);
+
+  if( length $notes_col ) {
+    $sql=<<"SQL";
+UPDATE $table_name
+SET $key_col=?,
+    $uri_col=?,
+    $block_col=?,
+    $order_col=?,
+    $action_col=?,
+    $notes_col=?
+WHERE $key_col=?
+  AND $uri_col=?
+  AND $block_col=?
+  AND $order_col=?
+  AND $id_col=?
+SQL
+
+    $stmt=$I->_dbh->prepare( $sql );
+    return $stmt->execute( @{$new}[0..5], @{$old}[0..4] );
+  } else {
+    $sql=<<"SQL";
 UPDATE $table_name
 SET $key_col=?,
     $uri_col=?,
@@ -216,8 +270,9 @@ WHERE $key_col=?
   AND $id_col=?
 SQL
 
-  $stmt=$I->_dbh->prepare_cached( $sql );
-  return $stmt->execute( @{$new}[0..4], @{$old}[0..4] );
+    $stmt=$I->_dbh->prepare( $sql );
+    return $stmt->execute( @{$new}[0..4], @{$old}[0..4] );
+  }
 }
 
 sub insert {
@@ -225,9 +280,69 @@ sub insert {
   my $new=shift;
 
   my ($table_name,$key_col,$uri_col,$block_col,$order_col,$action_col,
-      $id_col)= map {$I->$_} qw/table key uri block order action id/;
-  my $stmt;
-  my $sql=<<"SQL";
+      $id_col, $notes_col)=
+	map {$I->$_} qw/table key uri block order action id notes/;
+  my ($stmt, $sql);
+
+  my $st=$I->seqtbl;
+  if( length $st ) {
+    my $sn=$I->seqnamecol;
+    my $sv=$I->seqvalcol;
+    my $ms=$I->idseqname;
+
+    $stmt=$I->_dbh->prepare( "SELECT $sv FROM $st WHERE $sn = ?" );
+    $stmt->execute($ms);
+    my ($newid)=@{$stmt->fetchall_arrayref};
+    die "ERROR: $st table not set up: missing row with $sn=$ms\n"
+      unless( ref $newid eq 'ARRAY' );
+    $newid=$newid->[0];
+
+    $stmt=$I->_dbh->prepare( "UPDATE $st SET $sv=$sv+1 WHERE $sn = ?" );
+    $stmt->execute($ms);
+
+    if( length $notes_col ) {
+      $sql=<<"SQL";
+INSERT INTO $table_name ($key_col,
+                         $uri_col,
+                         $block_col,
+                         $order_col,
+                         $action_col,
+                         $notes_col,
+                         $id_col)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+SQL
+
+      $stmt=$I->_dbh->prepare( $sql );
+      return $stmt->execute( @{$new}[0..5], $newid );
+    } else {
+      $sql=<<"SQL";
+INSERT INTO $table_name ($key_col,
+                         $uri_col,
+                         $block_col,
+                         $order_col,
+                         $action_col, $id_col)
+VALUES (?, ?, ?, ?, ?, ?)
+SQL
+
+      $stmt=$I->_dbh->prepare( $sql );
+      return $stmt->execute( @{$new}[0..4], $newid );
+    }
+  } else {
+    if( length $notes_col ) {
+      $sql=<<"SQL";
+INSERT INTO $table_name ($key_col,
+                         $uri_col,
+                         $block_col,
+                         $order_col,
+                         $action_col,
+                         $notes_col)
+VALUES (?, ?, ?, ?, ?, ?)
+SQL
+
+      $stmt=$I->_dbh->prepare( $sql );
+      return $stmt->execute( @{$new}[0..5] );
+    } else {
+      $sql=<<"SQL";
 INSERT INTO $table_name ($key_col,
                          $uri_col,
                          $block_col,
@@ -236,8 +351,10 @@ INSERT INTO $table_name ($key_col,
 VALUES (?, ?, ?, ?, ?)
 SQL
 
-  $stmt=$I->_dbh->prepare_cached( $sql );
-  return $stmt->execute( @{$new} );
+      $stmt=$I->_dbh->prepare( $sql );
+      return $stmt->execute( @{$new}[0..4] );
+    }
+  }
 }
 
 sub delete {
@@ -256,8 +373,45 @@ WHERE $key_col=?
   AND $id_col=?
 SQL
 
-  $stmt=$I->_dbh->prepare_cached( $sql );
+  $stmt=$I->_dbh->prepare( $sql );
   return $stmt->execute( @{$old} );
+}
+
+sub dump {
+  my $I=shift;
+
+  my ($table_name,$key_col,$uri_col,$block_col,$order_col,$action_col,
+      $notes_col)=
+	map {$I->$_} qw/table key uri block order action notes/;
+
+  $notes_col="''" unless( length $notes_col );
+
+  my $sql=<<"SQL";
+SELECT $key_col, $uri_col, $block_col, $order_col, $action_col, $notes_col
+FROM $table_name
+ORDER BY $key_col, $uri_col, $block_col ASC, $order_col ASC
+SQL
+
+  my $stmt=$I->_dbh->prepare( $sql );
+  $stmt->execute;
+  return map {defined $_->[5] ? $_ : [@{$_}[0..4], '']}
+         @{$stmt->fetchall_arrayref};
+}
+
+sub restore {
+  my $I=shift;
+
+  eval {
+    $I->begin;
+    foreach my $el (@_) {
+      $I->insert($el);
+    }
+    $I->commit;
+  };
+  if( $@ ) {
+    warn "$@";
+    $I->rollback;
+  }
 }
 
 sub DESTROY {

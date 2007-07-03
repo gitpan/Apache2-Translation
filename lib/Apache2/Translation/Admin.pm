@@ -24,7 +24,7 @@ use Class::Member::HASH -CLASS_MEMBERS=>qw/static types types_re templates
 					   provider_spec r title/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 our $STATIC;
 our $DEFAULTPROVIDERHOST='http://localhost';
 
@@ -185,7 +185,7 @@ sub xfetch {
   $stash->{uri}=$uri;
 
   my $rowspan;
-  foreach my $el ($prov->fetch( $key, $uri )) {
+  foreach my $el ($prov->fetch( $key, $uri, 1 )) {
     if( $block ne $el->[0] ) {
       $block=$el->[0];
       $current={ b=>$block, a=>[] };
@@ -195,10 +195,16 @@ sub xfetch {
     $el->[2]=~s/\s+$//;
     my $lines=($el->[2]=~tr/\n//)+1;
     $lines=10 if( $lines>10 );
-    push @{$current->{a}}, +{o=>$el->[1],
+    my $clines=($el->[4]=~tr/\n//)+1;
+    $clines=10 if( $clines>10 );
+    push @{$current->{a}}, +{
+			     o=>$el->[1],
 			     a=>$el->[2],
 			     lines=>$lines,
-			     id=>$el->[3]||''};
+			     id=>$el->[3]||'',
+			     clines=>$clines,
+			     c=>$el->[4]||'',
+			    };
   }
   $stash->{BL}=\@l;
 
@@ -237,18 +243,19 @@ sub xupdate {
   eval {
     $prov->begin;
 
-    my ($oblock, $block, $oorder, $order, $id, $action);
+    my ($oblock, $block, $oorder, $order, $id, $action, $note);
     foreach my $a ($r->param) {
       if( ($oblock, $block, $oorder, $order, $id)=
 	  $a=~/^action_(\d*)_(\d+)_(\d*)_(\d+)_(\d*)/ ) {
 	$action=$r->param($a);
+	$note=$r->param("note_${block}_${order}");
 	if( length $id ) {
 	  die "ERROR: Key=$okey, Uri=$ouri, Block=$oblock, Order=$oorder, Id=$id not updated\n"
 	    unless( 0<$prov->update( [$okey, $ouri, $oblock, $oorder, $id],
-				     [$key, $uri, $block, $order, $action] ) );
+				     [$key, $uri, $block, $order, $action, $note] ) );
 	} else {
 	  die "ERROR: Key=$key, Uri=$uri, Block=$block, Order=$order not inserted\n"
-	    unless( 0<$prov->insert( [$key, $uri, $block, $order, $action] ) );
+	    unless( 0<$prov->insert( [$key, $uri, $block, $order, $action, $note] ) );
 	}
       } elsif( ($oblock, $oorder, $id)=
 	       $a=~/^delete_(\d*)_(\d+)_(\d*)/ ) {

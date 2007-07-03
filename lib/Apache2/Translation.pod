@@ -244,23 +244,21 @@ it shifts to the next normal state and finishes the current block list.
 C<Restart> restarts the processing. The optional uri argument is evaluated by
 perl and assigned to C<$r->uri>.
 
-=item B<Call: string>
+=item B<Call: string, ?@params?>
 
 Well, the name suggests it is calling a subroutine. Assume you have several
 WEB applications running on the same server, say one application for each
 department. Each department needs of course some kind of authorization:
 
  #uri      blk ord action
- AUTH      0   0   Config: "AuthName \"$ctx->{name}\""
+ AUTH      0   0   Config: "AuthName \"$ARGV[0]\""
  AUTH      0   1   Config: 'AuthType Basic'
- AUTH      0   2   Config: 'AuthUserFile /etc/htaccess/user/'.$ctx->{file}
- /dep1     0   0   Do: @{$ctx}{qw/name file/}=('Department 1', 'dep1')
- /dep1     0   1   Call: 'AUTH'
- /dep2     0   0   Do: @{$ctx}{qw/name file/}=('Department 2', 'dep2')
- /dep2     0   1   Call: 'AUTH'
+ AUTH      0   2   Config: 'AuthUserFile /etc/htaccess/user/'.$ARGV[1]
+ /dep1     0   0   Call: qw/AUTH Department_1 dep1/
+ /dep2     0   0   Call: qw/AUTH Department_2 dep2/
 
 The C<AUTH> in the C<Call> actions refer to the C<AUTH> block list in the
-C<uri> column.
+C<uri> column. An optional parameter list is passed via C<@ARGV>.
 
 C<Call> fetches the block list for a given uri and processes it. If a
 C<Last> action is executed the processing of that block list is finished.
@@ -270,6 +268,15 @@ C<Last> action is executed the processing of that block list is finished.
 The C<Redirect> action sends a HTTP redirect response to the client and
 abort the current request. The optional C<http_code> specifies the
 HTTP response code. Default is 302 (MOVED TEMPORARILY).
+
+C<Redirect> tries to make the outgoing C<Location> header RFC2616 conform.
+That means if the schema part is ommitted it figures out if it has to be
+C<http> or C<https>. If a relative url is given an appropriate url is
+computed based on the current value of C<$URI>.
+
+If the current request is the result of an internal redirect the
+redirecting request's status is changed to C<http_code>. Thus,
+C<Redirect> works also for C<ErrorDocument>s.
 
 =item B<Error: ?http_code?, ?message?>
 
@@ -456,19 +463,25 @@ This tells Apache to forward the request to C<url> as a proxy. C<url> is
 optional. If ommitted C<$r-E<gt>unparsed_uri> is used. That means Apache
 must be used as a proxy by the browser.
 
-=item B<CgiScript> (without parameter)
+=item B<CgiScript: ?string?>
 
 is equivalent to
 
  Do: $r->handler( 'cgi-script' );
  FixupConfig: ['Options ExecCGI']
 
-=item B<PerlScript> (without parameter)
+If C<string> is given it is evaluated and the result is assigned to
+C<$r-E<gt>filename>.
+
+=item B<PerlScript: ?string?>
 
 is equivalent to
 
  Do: $r->handler( 'perl-script' );
  FixupConfig: ['Options ExecCGI'], ['PerlOptions +ParseHeaders']
+
+If C<string> is given it is evaluated and the result is assigned to
+C<$r-E<gt>filename>.
 
 =item B<PerlHandler: string>
 
@@ -592,11 +605,18 @@ The provider object is then created by:
 There are currently 2 providers implemented. One is based on a database
 the other on a human readable flat file for storage.
 
-The C<File> provider expects only one parameter:
+The C<File> provider expects:
 
 =over 2
 
 =item B<configfile=/path/to/file>
+
+the configuration file.
+
+=item B<notesdir=/path/to/directory>
+
+a directory where comments to the configuration can be stored. Only valid
+in combination with the admin interface.
 
 =back
 
@@ -628,7 +648,15 @@ names the translation table.
 
 =item B<action=NAME>
 
-name the columns of the translation table to use.
+=item B<id=NAME>
+
+=item B<notes=NAME>
+
+name the columns of the translation table to use. The C<id> and C<notes>
+columns are necessary only in combination with the admin interface.
+The C<id> column if specified must have a default value on C<INSERT>
+generating unique keys, something like C<autoincrement> in MySQL or
+C<nextval('sequence')> in PostgreSQL.
 
 =item B<cachetbl=NAME>
 
@@ -832,7 +860,7 @@ checks the cache here.
 
 is called after each uri translation.
 
-=item B<fetch( $key, $uri )>
+=item B<fetch( $key, $uri, $with_notes )>
 
 is called to fetch a list of blocks. The result is a list of arrays:
 
@@ -840,12 +868,36 @@ is called to fetch a list of blocks. The result is a list of arrays:
   [block, order, action],
   ...)
 
+If the adminstration WEB interface is to be used C<fetch> must return a
+list of:
+
+ ([block, order, action, id],
+  [block, order, action, id],
+  ...)
+
+where C<id> is a unique key.
+
+If the C<$with_notes> parameter is true C<fetch> is called from the
+admin interface and wants to fetch also notes. In this case the return
+value is a list like this:
+
+ ([block, order, action, id, note],
+  [block, order, action, id, note],
+  ...)
+
+Notes are comments on actions for the user of the admin interface. They are
+not evaluated otherwize.
+
 =back
 
 The following interface is optional. It has to be implemented if the provider
 is to be used also with the administration WEB interface.
 
 =over 4
+
+=item B<can_notes>
+
+returns true if a provider supports notes in its current configuration.
 
 =item B<list_keys>
 

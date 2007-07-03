@@ -10,7 +10,7 @@ use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
 
-plan tests=>15;
+plan tests=>26;
 #plan 'no_plan';
 
 {
@@ -50,7 +50,8 @@ SQL
   my $header=<<'EOD';
 #id	xkey	xuri	xblock	xorder	xaction
 0	default	:PRE:	0	0	Do: $DEBUG=0
-1	default	:PRE:	0	1	Key: 'k'
+1	default	:PRE:	0	1	Config: 'ErrorDocument 404 /error'
+2	default	:PRE:	0	2	Key: 'k'
 EOD
 
   foreach my $l (grep !/^\s*#/, split /\n+/, $header) {
@@ -141,6 +142,19 @@ $data=<<'EOD';
 28	k	/cgi3	0	0	Config: 'AllowOverride Options', 'Options FollowSymLinks'
 29	k	/cgi3	0	1	Config: 'SetHandler cgi-script'
 30	k	/cgi3	0	2	File: $r->document_root.$MATCHED_PATH_INFO
+
+31	k	/error	0	0	Redirect: '/tsthnd'
+32	k	/redr/1	0	0	Redirect: 'otto/1'
+33	k	/redr/2	0	0	Redirect: '/otto/2'
+
+34	k	/call	0	0	Call: qw!sub 1!
+
+35	k	/cgi4	0	0	Cgiscript: $r->document_root.$MATCHED_PATH_INFO
+
+36	k	/perl4	0	0	Perlscript: $r->document_root.$MATCHED_PATH_INFO
+
+100	k	sub	0	0	Do: $r->notes->{testnote}=$ARGV[0]
+101	k	sub	0	1	Perlhandler: sub {$_[0]->print($_[0]->notes->{testnote}); 0}
 EOD
 update_db;
 
@@ -159,9 +173,11 @@ ok t_cmp GET_BODY( '/file/ok.html' ), 'OK', n '/file/ok.html';
 SKIP: {
   skip "Need cgi module", 1 unless( need_module( 'cgi' ) or need_module( 'cgid' ) );
   ok t_cmp GET_BODY( '/cgi/script.pl' ), qr!^CGI/!, n '/cgi/script.pl';
+  ok t_cmp GET_BODY( '/cgi4/script.pl' ), qr!^CGI/!, n '/cgi4/script.pl';
 }
 
 ok t_cmp GET_BODY( '/perl/script.pl' ), qr!^mod_perl/!, n '/perl/script.pl';
+ok t_cmp GET_BODY( '/perl4/script.pl' ), qr!^mod_perl/!, n '/perl4/script.pl';
 
 t_client_log_warn_is_expected();
 ok t_cmp GET_BODY( '/tsthnd' ), 'TestHandler', n '/tsthnd';
@@ -198,6 +214,32 @@ SKIP: {
     ok t_cmp $body, qr!^CGI/!, n '/cgi3/script.pl';
   }
 }
+
+my $resp=GET( '/error' );
+ok t_cmp $resp->code, 302, n '/error: code==302';
+ok t_cmp $resp->header('Location'),
+         'http://'.Apache::TestRequest::hostport.'/tsthnd',
+         n '/error: Location==http://'.Apache::TestRequest::hostport.'/tsthnd';
+
+$resp=GET( '/not_found' );
+ok t_cmp $resp->code, 302, n '/not_found: code==302';
+ok t_cmp $resp->header('Location'),
+         'http://'.Apache::TestRequest::hostport.'/tsthnd',
+         n '/not_found: Location==http://'.Apache::TestRequest::hostport.'/tsthnd';
+
+$resp=GET( '/redr/1' );
+ok t_cmp $resp->code, 302, n '/redr/1: code==302';
+ok t_cmp $resp->header('Location'),
+         'http://'.Apache::TestRequest::hostport.'/redr/otto/1',
+         n '/redr/1: Location==http://'.Apache::TestRequest::hostport.'/redr/otto/1';
+
+$resp=GET( '/redr/2' );
+ok t_cmp $resp->code, 302, n '/redr/2: code==302';
+ok t_cmp $resp->header('Location'),
+         'http://'.Apache::TestRequest::hostport.'/otto/2',
+         n '/redr/2: Location==http://'.Apache::TestRequest::hostport.'/otto/2';
+
+ok t_cmp GET_BODY( '/call' ), '1', n '/call';
 
 $dbh->do('DELETE FROM trans');
 $dbh->disconnect;

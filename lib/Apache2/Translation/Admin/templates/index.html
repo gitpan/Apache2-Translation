@@ -125,7 +125,7 @@
 		<div id="div[% counter %]" style="display: none;" ADM_KEY="[% k.0 | uri | html %]" ADM_URI="[% k.1 | uri | html %]"></div>
 		[%- counter=counter+1 %]
 		[%- END %]
-		<script type="text/javascript">next_counter=[% counter %];</script>
+		<script type="text/javascript">next_counter=[% counter %]; can_notes=[% I.provider.can_notes %];</script>
 	</body>
 </html>
 [%#

@@ -17,3 +17,17 @@ Revision history for Perl extension Apache2::Translation.
 	- case-insensitive provider spec keys
 	- PerlHandler action now pays attention to the method attribute of a
 	  handler
+
+0.14  Wed Apr 11 15:45:38 CEST 2007
+	- Bugfix: Redirect now works if $r is the result of and ErrorDocument
+	- Bugfix: Redirect now returns RFC conforming Location headers
+	- Call action now accepts parameters and stores them in @ARGV
+
+0.15  Tue Apr 17 15:18:49 CEST 2007
+	- "notes" field added
+	- dump/restore provider methods added
+
+0.16  Wed Apr 18 09:50:46 CEST 2007
+	- Bugfix: handle_eval() was called in the response phase but the global
+	  $r was not set up.
+	- PerlScript and CGIScript actions with parameter.

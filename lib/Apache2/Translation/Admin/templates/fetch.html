@@ -37,9 +37,24 @@
 			<tr class="tdc">
 				<td ADM_BLOCK="[% l.b | html %]" ADM_ORDER="[% a.o | html %]" ADM_ID="[% a.id | html %]"
 					colspan="2" class="[% classes.$class %]">
-					<textarea class="fetch_ta" rows="[% a.lines %]" wrap="off"
-							  onchange="return xchanged( [% counter %] );"
-							  onkeyup="return xchanged( [% counter %] );">[% a.a | html %]</textarea><br>
+		            <table class="inner_tdc">
+		                <tr>
+                            <td>
+			                    <textarea class="fetch_ta" rows="[% a.lines %]" wrap="off"
+				                          title="action field"
+				                          onchange="return xchanged( [% counter %] );"
+							              onkeyup="return xchanged( [% counter %] );">[% a.a | html %]</textarea>
+			                </td>
+					[%- IF I.provider.can_notes %]
+                            <td>
+			                    <textarea class="comment_ta" rows="[% a.clines %]" wrap="word"
+				                          title="comment field"
+							              onchange="return xchanged( [% counter %] );"
+							              onkeyup="return xchanged( [% counter %] );">[% a.c | html %]</textarea>
+                            </td>
+					[%- END %]
+                        </tr>
+                    </table>
 					<div class="resizer" name="resizer" title="resize text area above"></div>
 				</td>
 				<td class="control">

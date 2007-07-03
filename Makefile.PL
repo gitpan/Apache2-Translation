@@ -19,6 +19,8 @@ ModPerl::MM::WriteMakefile(
 			'Tie::Cache::LRU'=>0.21,
 			'Test::Deep'=>0,
 			'Template'=>2.15,
+			'Apache2::ModSSL'=>0,
+			'YAML'=>0,
 		       },
   ABSTRACT_FROM     => 'lib/Apache2/Translation.pod',
   AUTHOR            => 'Torsten Foertsch <torsten.foertsch@gmx.net>',

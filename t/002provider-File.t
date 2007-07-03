@@ -3,12 +3,13 @@ use warnings FATAL => 'all';
 
 use Apache::Test qw(:withtestmore);
 use Apache::TestUtil;
+use Apache::TestUtil qw(t_catfile);
 use Test::More;
 use Test::Deep;
 use File::Basename 'dirname';
 
-#plan tests=>8;
-plan 'no_plan';
+plan tests=>18;
+#plan 'no_plan';
 
 my $data=<<'EOD';
 #xkey	xuri		xblock	xorder	xaction
@@ -23,13 +24,16 @@ EOD
 my $serverroot=Apache::Test::vars->{serverroot};
 sub n {my @c=caller; $c[1].'('.$c[2].'): '.$_[0];}
 my $conf=$serverroot.'/translation.conf';
+my $conf_notes=$serverroot.'/translation.notes';
 
 ######################################################################
 ## the real tests begin here                                        ##
 ######################################################################
 
-BEGIN{use_ok 'Apache2::Translation::File'}
+use Apache2::Translation::File;
 
+t_mkdir( $conf_notes );
+t_write_file( t_catfile($conf_notes, "3"), "note on 3" );
 t_write_file( $conf, '' );
 my $time=time;
 utime $time, $time, $conf;
@@ -241,6 +245,55 @@ cmp_deeply $o->_cache, {
 				    ]
 		       }, n 'after delete (3x)';
 $o->stop;
+
+$o=Apache2::Translation::File->new
+  (
+   ConfigFile=>$conf,
+   NotesDir=>$conf_notes,
+  );
+
+$o->start;
+cmp_deeply $o->_cache, {
+			"k1\0u1" => [
+				     [0, 0, "a", 1, "k1", "u1"],
+				     [0, 1, "b", 3, "k1", "u1"],
+				     [1, 0, "c", 2, "k1", "u1"],
+				     [1, 1, "c", 90, "k1", "u1"]
+				    ]
+		       }, n 'reread with notes';
+cmp_deeply [$o->fetch( qw/k1 u1 1/ )], [
+					[0, 0, "a", 1, ''],
+					[0, 1, "b", 3, 'note on 3'],
+					[1, 0, "c", 2, ''],
+					[1, 1, "c", 90, '']
+				       ], n 'fetch with_notes';
+$o->begin;
+$o->update( ["k1", "u1", 1, 1, 90], ["k2", "u1", 1, 2, "bccc", 'note on 90'] );
+$o->commit;
+
+cmp_deeply do{local $/; local @ARGV=(t_catfile($conf_notes, '90')); <>.''},
+           'note on 90', n 'note on id=90';
+
+#use Data::Dumper; warn Dumper([$o->dump]);
+cmp_deeply [$o->dump],
+           [['k1', 'u1', 0, 0, 'a', ''],
+	    ['k1', 'u1', 0, 1, 'b', 'note on 3'],
+	    ['k1', 'u1', 1, 0, 'c', ''],
+	    ['k2', 'u1', 1, 2, 'bccc', 'note on 90']
+	   ],
+           n 'dump';
+
+$o->restore(['k2', 'u1', '2', '0', 'restored_1', 'note_1'],
+	    ['k2', 'u1', '2', '1', 'restored_2', 'note_2']);
+
+cmp_deeply [$o->fetch('k2', 'u1', 1)],
+           [['1', '2', 'bccc', '90', 'note on 90'],
+	    ['2', '0', 'restored_1', '91', 'note_1'],
+	    ['2', '1', 'restored_2', '92', 'note_2']],
+           n 'fetch after restore';
+
+$o->stop;
+
 
 __END__
 # Local Variables: #

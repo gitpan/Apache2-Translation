@@ -15,7 +15,9 @@ use Apache2::CmdParms;
 use Apache2::Directive;
 use Apache2::Module;
 use Apache2::Log;
+use Apache2::ModSSL;
 use APR::Table;
+use APR::SockAddr;
 use attributes;
 use Apache2::Const -compile=>qw{:common :http
 				:conn_keepalive
@@ -30,7 +32,7 @@ use Apache2::Const -compile=>qw{:common :http
 use Perl::AtEndOfScope;
 use YAML ();
 
-our $VERSION = '0.13';
+our $VERSION = '0.16';
 
 our ($cf,$r,$ctx);
 sub undef_cf_r_ctx {undef $_ for ($cf,$r,$ctx);}
@@ -377,39 +379,6 @@ my %action_dispatcher;
      $r->handler('modperl')
        unless( $r->handler=~/^(?:modperl|perl-script)$/ );
 
-=pod
-
-     my $handler;
-     {
-       no strict 'refs';
-       $handler=(defined(&{$what})?\&{$what}:
-		 defined(&{$what.'::handler'})?\&{$what.'::handler'}:
-		 $what->can('handler')?sub {$what->handler(@_)}:
-		 $what);
-
-       unless( ref $handler ) {
-	 # handler routine not defined yet. try to load a module
-	 eval "require $handler";
-	 if( $@ ) {
-	   if( $handler=~s/::\w+$// ) {
-	     # retry without the trailing ::handler
-	     eval "require $handler";
-	   }
-	 }
-	 $r->warn( __PACKAGE__.": Handler module $handler loaded -- consider to load it at server startup" )
-	   unless( $@ );
-	 $handler=(defined(&{$what})?\&{$what}:
-		   defined(&{$what.'::handler'})?\&{$what.'::handler'}:
-		   $what->can('handler')?sub {$what->handler(@_)}:
-		   $what);
-	 $r->warn( __PACKAGE__.": Cannot find handler $what".($@?": $@":'') )
-	   unless( ref $handler );
-       }
-     }
-     $r->set_handlers( PerlResponseHandler=>$handler );
-
-=cut
-
      # some perl handler use $r->location to get some "base path", e.g.
      # Catalyst. The only way to set this location is this.
      #add_note(config=>'PerlResponseHandler '.$what."\t".$MATCHED_URI);
@@ -423,6 +392,7 @@ my %action_dispatcher;
 
    perlscript=>sub {
      my ($action, $what)=@_;
+     $r->filename( scalar handle_eval( $what ) ) unless( $what=~/^\s*$/ );
      $r->handler('perl-script');
      $r->set_handlers( PerlResponseHandler=>'ModPerl::Registry' );
      add_note(fixupconfig=>'Options ExecCGI');
@@ -432,8 +402,9 @@ my %action_dispatcher;
 
    cgiscript=>sub {
      my ($action, $what)=@_;
+     $r->filename( scalar handle_eval( $what ) ) unless( $what=~/^\s*$/ );
      $r->handler('cgi-script');
-     add_note(fixupconfig=>'Options ExecCGI');
+     add_note(fixupconfig=>'Options +ExecCGI');
      return 1;
    },
 
@@ -515,7 +486,8 @@ my %action_dispatcher;
 
    call=>sub {
      my ($action, $what)=@_;
-     $what=handle_eval( $what );
+     local @ARGV;
+     ($what, @ARGV)=handle_eval( $what );
      process( $cf->{provider}->fetch( $ctx->{' key'}, $what ) );
      return 1;
    },
@@ -668,7 +640,7 @@ sub add_config {
 
 sub maptostorage {
   my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
-  $r=shift;
+  $r=$_[0];
 
   warn "\nMapToStorage\n" if( $DEBUG>1 );
 
@@ -695,7 +667,7 @@ sub maptostorage {
 
 sub fixup {
   my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
-  $r=shift;
+  $r=$_[0];
 
   warn "\nFixup\n" if( $DEBUG>1 );
 
@@ -716,7 +688,8 @@ sub fixup {
 }
 
 sub response {
-  my $r=$_[0];
+  my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
+  $r=$_[0];
 
   my $handler;
   my $what=$r->notes->get(__PACKAGE__."::response");
@@ -819,13 +792,6 @@ sub handler {
     $r->push_handlers( PerlFixupHandler=>__PACKAGE__.'::fixup' );
     $r->push_handlers( PerlMapToStorageHandler=>__PACKAGE__.'::maptostorage' );
 
-#    if( exists $ctx->{' fixupconfig'} or exists $ctx->{' fixup'} ) {
-#      $r->pnotes->{__PACKAGE__.'::ctx'}=$ctx;
-#    }
-#    if( exists $ctx->{' config'} or exists $ctx->{' maptostorage'} ) {
-#      $r->pnotes->{__PACKAGE__.'::ctx'}=$ctx;
-#    }
-
     warn "proceed with URI '".$r->uri."' and FILENAME '".$r->filename."'\n"
       if( $DEBUG );
 
@@ -837,7 +803,36 @@ sub handler {
       $@->{code}=Apache2::Const::SERVER_ERROR unless( exists $@->{code} );
 
       if( exists $@->{loc} and 300<=$@->{code} and $@->{code}<=399 ) {
-	$r->err_headers_out->{Location}=$@->{loc};
+	my $loc=$@->{loc};
+	unless( $loc=~/^\w+:/ ) {
+	  unless( $loc=~m!^/! ) {
+	    my $uri=$r->uri;
+	    $uri=~s![^/]*$!!;
+	    $loc=$uri.$loc;
+	  }
+
+	  my $host=$r->headers_in->{Host} || $r->hostname;
+	  $host=~s/:\d+$//;
+
+	  if( $r->connection->is_https ) {
+	    if( $r->connection->local_addr->port!=443 ) {
+	      $loc=':'.$r->connection->local_addr->port.$loc;
+	    }
+	    $loc='https://'.$host.$loc;
+	  } else {
+	    if( $r->connection->local_addr->port!=80 ) {
+	      $loc=':'.$r->connection->local_addr->port.$loc;
+	    }
+	    $loc='http://'.$host.$loc;
+	  }
+	}
+	$r->err_headers_out->{Location}=$loc;
+	# change status of $r->prev if $r is the result of an ErrorDocument
+	my $er=$r->prev;
+	if( $er ) {
+	  while( $er->prev ) {$er=$er->prev};
+	  $er->status($@->{code});
+	}
       }
 
       if( exists $@->{msg} ) {
