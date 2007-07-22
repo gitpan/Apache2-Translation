@@ -9,8 +9,9 @@ use Apache::TestRequest qw{GET_BODY GET GET_RC};
 use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
+use YAML ();
 
-plan tests=>26;
+plan tests=>28;
 #plan 'no_plan';
 
 {
@@ -153,6 +154,15 @@ $data=<<'EOD';
 
 36	k	/perl4	0	0	Perlscript: $r->document_root.$MATCHED_PATH_INFO
 
+37	k	/minfo	0	0	Perlhandler: 'TestHandler::meminfo'
+
+38	k	/econf	0	0	Perlhandler: sub {require Apache2::Translation::Config; goto &Apache2::Translation::Config::handler;}
+
+39	k	/fixup	0	0	Perlhandler: sub {my $r=$_[0]; $r->content_type("text/plain"); my @n=$r->notes->get("fixup_add"); $r->print("@n"); 0;}
+40	k	/fixup	0	1	Fixup: $r->notes->add("fixup_add", "1")
+41	k	/fixup	0	2	Fixup: $r->notes->add("fixup_add", "2")
+42	k	/fixup	0	3	Fixup: $r->notes->add("fixup_add", "3")
+
 100	k	sub	0	0	Do: $r->notes->{testnote}=$ARGV[0]
 101	k	sub	0	1	Perlhandler: sub {$_[0]->print($_[0]->notes->{testnote}); 0}
 EOD
@@ -240,6 +250,44 @@ ok t_cmp $resp->header('Location'),
          n '/redr/2: Location==http://'.Apache::TestRequest::hostport.'/otto/2';
 
 ok t_cmp GET_BODY( '/call' ), '1', n '/call';
+
+ok t_cmp GET_BODY( '/fixup' ), '1 2 3', n '/fixup';
+
+SKIP: {
+  skip "Need Linux::Smaps to report meminfo", 0 unless( need_module( 'Linux::Smaps' ) );
+  t_debug GET_BODY( '/minfo' );
+}
+
+SKIP: {
+  skip "Need YAML to test Apache2::Translation::Config", 1 unless( need_module( 'YAML' ) );
+  ok( t_cmp YAML::Load(GET_BODY( '/econf' )),
+      {
+       TranslationProvider  => [
+				'DB',
+				database  => $db,
+				user      => $user,
+				password  => $pw,
+				table     => 'trans',
+				id        => 'id',
+				key       => 'xkey',
+				uri       => 'xuri',
+				block     => 'xblock',
+				order     => 'xorder',
+				action    => 'xaction',
+				cachetbl  => 'cache',
+				cachecol  => 'v',
+				singleton => '1'
+			       ],
+       TranslationKey       => 'default',
+       TranslationEvalCache => 'unlimited'
+      },
+      n 'Apache2::Translation::Config' );
+}
+
+SKIP: {
+  skip "Need Linux::Smaps to report meminfo", 0 unless( need_module( 'Linux::Smaps' ) );
+  t_debug GET_BODY( '/minfo' );
+}
 
 $dbh->do('DELETE FROM trans');
 $dbh->disconnect;

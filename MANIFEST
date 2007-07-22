@@ -18,6 +18,7 @@ lib/Apache2/Translation.pm
 lib/Apache2/Translation.pod
 lib/Apache2/Translation/DB.pm
 lib/Apache2/Translation/File.pm
+lib/Apache2/Translation/Config.pm
 lib/Apache2/Translation/Admin.pm
 lib/Apache2/Translation/Admin/debug.css
 lib/Apache2/Translation/Admin/debug.js

@@ -737,11 +737,10 @@ snippets will then be limited by C<number>.
 =head2 Exporting our provider parameters
 
 C<Apache2::Translation> can export its provider parameters by means of the
-PerlResponseHandler C<Apache2::Translation::Config>. This handler is
-implemented in the same C<Apache2::Translation> module. So there is no need
-for another PerlModule statement. Simply configure the handler for some
+C<Apache2::Translation::Config> module. Simply configure the handler for some
 location:
 
+  PerlModule Apache2::Translation::Config
   <Location /-/config>
     SetHandler modperl
     PerlResponseHandler Apache2::Translation::Config

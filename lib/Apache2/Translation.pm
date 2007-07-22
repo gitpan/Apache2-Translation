@@ -30,9 +30,8 @@ use Apache2::Const -compile=>qw{:common :http
 				ITERATE TAKE1 RAW_ARGS RSRC_CONF};
 
 use Perl::AtEndOfScope;
-use YAML ();
 
-our $VERSION = '0.16';
+our $VERSION = '0.17';
 
 our ($cf,$r,$ctx);
 sub undef_cf_r_ctx {undef $_ for ($cf,$r,$ctx);}
@@ -442,6 +441,12 @@ my %action_dispatcher;
      return 1;
    },
 
+   fixup=>sub {
+     my ($action, $what)=@_;
+     add_note(fixup=>$what);
+     return 1;
+   },
+
    fixupconfig=>sub {
      my ($action, $what)=@_;
      foreach my $c (handle_eval( $what )) {
@@ -671,6 +676,10 @@ sub fixup {
 
   warn "\nFixup\n" if( $DEBUG>1 );
 
+  foreach my $do ($r->notes->get(__PACKAGE__."::fixup")) {
+    handle_eval( $do );
+  }
+
   my @config=$r->notes->get(__PACKAGE__."::fixupconfig");
   if( @config ) {
     add_config([map {my @l=split /\t/, $_, 2; @l==2 ? [@l] : $_} @config]);
@@ -850,28 +859,6 @@ sub handler {
 
   return $RC if( defined $RC );
   return length $r->filename ? Apache2::Const::OK : Apache2::Const::DECLINED;
-}
-
-sub Config {
-  my $r=shift;
-
-  $cf=Apache2::Module::get_config(__PACKAGE__, $r->server);
-
-  $r->content_type('text/plain');
-
-  my $cache=$cf->{eval_cache};
-  if( tied %{$cache} ) {
-    $cache=tied( %{$cache} )->max_size;
-  } else {
-    $cache='unlimited';
-  }
-  $r->print( YAML::Dump( {
-			  TranslationKey=>$cf->{key},
-			  TranslationProvider=>$cf->{provider_param},
-			  TranslationEvalCache=>$cache,
-			 } ) );
-
-  return Apache2::Const::OK;
 }
 
 1;

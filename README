@@ -680,11 +680,10 @@ APACHE CONFIGURATION DIRECTIVES
 
   Exporting our provider parameters
     "Apache2::Translation" can export its provider parameters by means of
-    the PerlResponseHandler "Apache2::Translation::Config". This handler is
-    implemented in the same "Apache2::Translation" module. So there is no
-    need for another PerlModule statement. Simply configure the handler for
-    some location:
+    the "Apache2::Translation::Config" module. Simply configure the handler
+    for some location:
 
+      PerlModule Apache2::Translation::Config
       <Location /-/config>
         SetHandler modperl
         PerlResponseHandler Apache2::Translation::Config

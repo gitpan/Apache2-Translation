@@ -31,3 +31,9 @@ Revision history for Perl extension Apache2::Translation.
 	- Bugfix: handle_eval() was called in the response phase but the global
 	  $r was not set up.
 	- PerlScript and CGIScript actions with parameter.
+
+0.17  Sun Jul 22 17:16:39 CEST 2007
+	- removed "use YAML" from Apache2::Translation to save memory where it
+	  is not used.
+	- moved Apache2::Translation::Config into a separate module.
+	- Fixup action
