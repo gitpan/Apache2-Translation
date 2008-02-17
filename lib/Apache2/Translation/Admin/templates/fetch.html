@@ -7,13 +7,11 @@
     	  onsubmit="return false;"
 		  ADM_COUNTER="[% counter %]"
 		  ADM_NBLOCKS="[% BL.size %]">
-		<table>
+		<table[% tab_extra_style %] class="tdc">
 			<tr>
 				<td class="tdcol1">New Key:</td>
 				<td class="tdcol2">
-					<input type="text" name="newkey" id="key[% counter %]" value="[% key | html %]"
-						   onchange="return xchanged( [% counter %] );"
-						   onkeyup="return xchanged( [% counter %] );">
+					<input type="text" name="newkey" id="key[% counter %]" value="[% key | html %]">
 				</td>
 			</tr>
 			[%- IF uri==":PRE:" %]
@@ -22,9 +20,7 @@
 			<tr>
 				<td class="tdcol1">New Uri:</td>
 				<td class="tdcol2">
-					<input type="text" name="newuri" id="uri[% counter %]" value="[% uri | html %]"
-						   onchange="return xchanged( [% counter %] );"
-						   onkeyup="return xchanged( [% counter %] );">
+					<input type="text" name="newuri" id="uri[% counter %]" value="[% uri | html %]">
 				</td>
 			</tr>
 			[% END %]
@@ -37,25 +33,21 @@
 			<tr class="tdc">
 				<td ADM_BLOCK="[% l.b | html %]" ADM_ORDER="[% a.o | html %]" ADM_ID="[% a.id | html %]"
 					colspan="2" class="[% classes.$class %]">
-		            <table class="inner_tdc">
-		                <tr>
-                            <td>
-			                    <textarea class="fetch_ta" rows="[% a.lines %]" wrap="off"
-				                          title="action field"
-				                          onchange="return xchanged( [% counter %] );"
-							              onkeyup="return xchanged( [% counter %] );">[% a.a | html %]</textarea>
+					<input type="hidden" name="ysize">
+		            <table class="inner_tdc"[% a.extra_style %]>
+		                <tr class="inner_tdc">
+                            <td class="fetch_ta">
+			                    <textarea class="fetch_ta" wrap="off"
+				                          title="action field">[% a.a | html %]</textarea>
 			                </td>
 					[%- IF I.provider.can_notes %]
-                            <td>
-			                    <textarea class="comment_ta" rows="[% a.clines %]" wrap="word"
-				                          title="comment field"
-							              onchange="return xchanged( [% counter %] );"
-							              onkeyup="return xchanged( [% counter %] );">[% a.c | html %]</textarea>
+                            <td class="comment_ta">
+			                    <textarea class="comment_ta" wrap="word"
+				                          title="comment field">[% a.c | html %]</textarea>
                             </td>
 					[%- END %]
                         </tr>
                     </table>
-					<div class="resizer" name="resizer" title="resize text area above"></div>
 				</td>
 				<td class="control">
 					&nbsp;<a href="#" onclick="return xinsert(this, -1);"

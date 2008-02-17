@@ -1,6 +1,6 @@
 #!perl
 
-use 5.008;
+use 5.8.8;
 use ModPerl::MM ();
 use Apache::TestMM qw(test clean);
 
@@ -13,8 +13,8 @@ ModPerl::MM::WriteMakefile(
   VERSION_FROM      => 'lib/Apache2/Translation.pm',
   PREREQ_PM         => {
 			mod_perl2=>0,
-			'Perl::AtEndOfScope'=>0,
 			'DBI'=>0,
+			'BerkeleyDB'=>0.31,
 			'Class::Member'=>1.3,
 			'Tie::Cache::LRU'=>0.21,
 			'Test::Deep'=>0,
@@ -34,10 +34,13 @@ ModPerl::MM::WriteMakefile(
 
 sub MY::postamble {
   return <<'EOF';
+COMPRESS = gzip -9f
+
 README: lib/Apache2/Translation.pod mk_README.sh
 	./mk_README.sh
 
 rpm: dist
+	$(PERL) -i -pe 's/^(Version:\s*).*/$${1}$(VERSION)/' perl-Util-ServerPagesBDB.spec
 	rpmbuild -ba perl-Apache2-Translation.spec
 EOF
 }

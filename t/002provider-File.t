@@ -1,3 +1,4 @@
+# -*- mode: cperl; cperl-indent-level: 2; cperl-continued-statement-offset: 2; indent-tabs-mode: nil -*-
 use strict;
 use warnings FATAL => 'all';
 
@@ -7,8 +8,9 @@ use Apache::TestUtil qw(t_catfile);
 use Test::More;
 use Test::Deep;
 use File::Basename 'dirname';
+use File::Path ();
 
-plan tests=>18;
+plan tests=>24;
 #plan 'no_plan';
 
 my $data=<<'EOD';
@@ -32,6 +34,7 @@ my $conf_notes=$serverroot.'/translation.notes';
 
 use Apache2::Translation::File;
 
+File::Path::rmtree( $conf_notes );
 t_mkdir( $conf_notes );
 t_write_file( t_catfile($conf_notes, "3"), "note on 3" );
 t_write_file( $conf, '' );
@@ -46,11 +49,12 @@ my $o=Apache2::Translation::File->new
 ok $o, n 'provider object';
 
 $o->start;
-cmp_deeply $o->_timestamp, $time, n 'cache timestamp';
+cmp_deeply $o->timestamp, $time, n 'cache timestamp';
 $o->begin;
 foreach my $l (split /\n/, $data) {
   next if( $l=~/^#/ );
-  $o->insert([split /\s+/, $l]);
+  chomp $l;
+  $o->insert([split /\t+/, $l]);
 }
 $o->commit;
 $o->stop;
@@ -262,10 +266,10 @@ cmp_deeply $o->_cache, {
 				    ]
 		       }, n 'reread with notes';
 cmp_deeply [$o->fetch( qw/k1 u1 1/ )], [
-					[0, 0, "a", 1, ''],
+					[0, 0, "a", 1, undef],
 					[0, 1, "b", 3, 'note on 3'],
-					[1, 0, "c", 2, ''],
-					[1, 1, "c", 90, '']
+					[1, 0, "c", 2, undef],
+					[1, 1, "c", 90, undef]
 				       ], n 'fetch with_notes';
 $o->begin;
 $o->update( ["k1", "u1", 1, 1, 90], ["k2", "u1", 1, 2, "bccc", 'note on 90'] );
@@ -274,28 +278,51 @@ $o->commit;
 cmp_deeply do{local $/; local @ARGV=(t_catfile($conf_notes, '90')); <>.''},
            'note on 90', n 'note on id=90';
 
-#use Data::Dumper; warn Dumper([$o->dump]);
-cmp_deeply [$o->dump],
-           [['k1', 'u1', 0, 0, 'a', ''],
-	    ['k1', 'u1', 0, 1, 'b', 'note on 3'],
-	    ['k1', 'u1', 1, 0, 'c', ''],
-	    ['k2', 'u1', 1, 2, 'bccc', 'note on 90']
-	   ],
-           n 'dump';
+my @l=(['k1', 'u1', 0, 0, 'a', undef, 1],
+       ['k1', 'u1', 0, 1, 'b', 'note on 3', 3],
+       ['k1', 'u1', 1, 0, 'c', undef, 2],
+       ['k2', 'u1', 1, 2, 'bccc', 'note on 90', 90]);
+my $i=0;
+for( my $iterator=$o->iterator; my $el=$iterator->(); $i++ ) {
+  cmp_deeply($el, $l[$i], n "iterator $i");
+}
+cmp_deeply( $i, 4, n 'iteratorloop count' );
 
-$o->restore(['k2', 'u1', '2', '0', 'restored_1', 'note_1'],
-	    ['k2', 'u1', '2', '1', 'restored_2', 'note_2']);
+$o->begin;
+$o->clear;
+$o->commit;
 
-cmp_deeply [$o->fetch('k2', 'u1', 1)],
-           [['1', '2', 'bccc', '90', 'note on 90'],
-	    ['2', '0', 'restored_1', '91', 'note_1'],
-	    ['2', '1', 'restored_2', '92', 'note_2']],
-           n 'fetch after restore';
+cmp_deeply [$o->fetch('k1', 'u1', 1)],
+           [],
+           n 'cleared';
 
 $o->stop;
 
+$o=Apache2::Translation::File->new(ConfigFile=>\*DATA);
 
-__END__
-# Local Variables: #
-# mode: cperl #
-# End: #
+$o->start;
+cmp_deeply [$o->fetch( qw/key uri/ )],
+           [
+            [0, 1, "action1\naction1\n", 1],
+            [0, 2, "action3\naction3", 3],
+           ], n '__DATA__ as provider input 1';
+
+cmp_deeply [$o->fetch( qw/key2 uri2/ )],
+           [
+            [1, 2, "action2\naction2\n", 2],
+           ], n '__DATA__ as provider input 2';
+$o->stop;
+
+__DATA__
+
+>>> 1 key uri 0 1
+action1
+action1
+
+>>> 2 key2 uri2 1 2
+action2
+action2
+
+>>> 3 key uri 0 2
+action3
+action3

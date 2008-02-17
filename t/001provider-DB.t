@@ -1,3 +1,4 @@
+# -*- mode: cperl; cperl-indent-level: 2; cperl-continued-statement-offset: 2; indent-tabs-mode: nil -*-
 use strict;
 use warnings FATAL => 'all';
 
@@ -9,7 +10,7 @@ use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
 
-plan tests=>17;
+plan tests=>23;
 #plan 'no_plan';
 
 my $data=<<'EOD';
@@ -24,8 +25,12 @@ EOD
 
 my $serverroot=Apache::Test::vars->{serverroot};
 my ($db,$user,$pw)=@ENV{qw/DB USER PW/};
+$user='' unless defined $user;
+$pw='' unless defined $pw;
+my $dbinit='';
 unless( defined $db and length $db ) {
   ($db,$user,$pw)=("dbi:SQLite:dbname=$serverroot/test.sqlite", '', '');
+  $dbinit="PRAGMA synchronous = OFF";
 }
 t_debug "Using DB=$db USER=$user";
 my $dbh;
@@ -34,25 +39,11 @@ sub prepare_db {
 		     {AutoCommit=>1, PrintError=>0, RaiseError=>1} )
     or die "ERROR: Cannot connect to $db: $DBI::errstr\n";
 
-  eval {
-    $dbh->do( <<'SQL' );
-CREATE TABLE cache ( v int )
-SQL
-  } or $dbh->do( <<'SQL' );
-DELETE FROM cache
-SQL
-
-  $dbh->do( <<'SQL' );
-INSERT INTO cache( v ) VALUES( 1 )
-SQL
-
-  eval {
-    $dbh->do( <<'SQL' );
-CREATE TABLE trans ( id int, xkey text, xuri text, xblock int, xorder int, xaction text, xnotes text )
-SQL
-  } or $dbh->do( <<'SQL' );
-DELETE FROM trans
-SQL
+  $dbh->do($dbinit) if( length $dbinit );
+  $dbh->do('DELETE FROM cache');
+  $dbh->do('INSERT INTO cache( v ) VALUES( 1 )');
+  $dbh->do('DELETE FROM sequences');
+  $dbh->do('DELETE FROM trans');
 
   my $stmt=$dbh->prepare( <<'SQL' );
 INSERT INTO trans (id, xkey, xuri, xblock, xorder, xaction) VALUES (?,?,?,?,?,?)
@@ -62,13 +53,6 @@ SQL
     $stmt->execute(split /\t+/, $l);
   }
 
-  eval {
-    $dbh->do( <<'SQL' );
-CREATE TABLE sequences ( xname text, xvalue int )
-SQL
-  } or $dbh->do( <<'SQL' );
-DELETE FROM sequences WHERE xname='id'
-SQL
 }
 
 prepare_db;
@@ -86,6 +70,7 @@ my $o=Apache2::Translation::DB->new
    Table=>'trans', Key=>'xkey', Uri=>'xuri', Block=>'xblock',
    Order=>'xorder', Action=>'xaction', Id=>'id',
    CacheSize=>1000, CacheTbl=>'cache', CacheCol=>'v',
+   DBInit=>"$dbinit",
   );
 
 ok $o, n 'provider object';
@@ -130,6 +115,7 @@ $o=Apache2::Translation::DB->new
    CacheSize=>1000, CacheTbl=>'cache', CacheCol=>'v',
    SeqTbl=>'sequences', SeqNameCol=>'xname', SeqValCol=>'xvalue',
    IdSeqName=>'id',
+   DBInit=>"$dbinit",
   );
 
 $o->start;
@@ -169,33 +155,28 @@ cmp_deeply [$o->fetch('k2', 'u1', 1)],
            [['1', '2', 'inserted_action', '10', 'a_note']],
            n 'fetch with notes';
 
-cmp_deeply [$o->dump],
-           [['k1', 'u1', '0', '1', 'b', ''],
-	    ['k1', 'u1', '1', '2', 'new action', 'note on 2'],
-	    ['k1', 'u2', '0', '0', 'd', ''],
-	    ['k1', 'u2', '1', '0', 'e', ''],
-	    ['k1', 'u2', '1', '1', 'f', ''],
-	    ['k2', 'u1', '1', '2', 'inserted_action', 'a_note']
-	   ],
-           n 'dump';
+my @l=(['k1', 'u1', '0', '1', 'b', undef, 1],
+       ['k1', 'u1', '1', '2', 'new action', 'note on 2', 2],
+       ['k1', 'u2', '0', '0', 'd', undef, 3],
+       ['k1', 'u2', '1', '0', 'e', undef, 4],
+       ['k1', 'u2', '1', '1', 'f', undef, 5],
+       ['k2', 'u1', '1', '2', 'inserted_action', 'a_note', 10]);
+my $i=0;
+for( my $iterator=$o->iterator; my $el=$iterator->(); $i++ ) {
+  cmp_deeply($el, $l[$i], n "iterator $i");
+}
+cmp_deeply( $i, 6, n 'iteratorloop count' );
 
-$o->restore(['k2', 'u1', '2', '0', 'restored_1', 'note_1'],
-	    ['k2', 'u1', '2', '1', 'restored_2', 'note_2']);
+$o->begin;
+$o->clear;
+$o->commit;
 
-cmp_deeply [$o->fetch('k2', 'u1', 1)],
-           [['1', '2', 'inserted_action', '10', 'a_note'],
-	    ['2', '0', 'restored_1', '11', 'note_1'],
-	    ['2', '1', 'restored_2', '12', 'note_2']],
-           n 'fetch after restore';
-
+cmp_deeply [$o->fetch('k1', 'u1', 1)],
+           [],
+           n 'cleared';
 
 $o->stop;
 
 undef $o;
 
 $dbh->disconnect;
-
-__END__
-# Local Variables: #
-# mode: cperl #
-# End: #

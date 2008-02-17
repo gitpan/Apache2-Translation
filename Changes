@@ -1,16 +1,36 @@
 Revision history for Perl extension Apache2::Translation.
 
-0.01  Mon Dec 12 16:36:09 2005
-	- original version; created by h2xs 1.23 with options
-		-A -b 5.8.0 -n Apache2::Translation -XS
+0.19  Sat Jan 12 17:54:18 CET 2008
+	- File provider can now read from a filehandle, e.g. \*DATA
+	- bugfix, see t/012recursion.t
+	- stress test & deadlock detection in BDB provider
 
-0.08  Tue Mar  7 21:49:50 CET 2006
-	- initial public version
+0.18  Thu Nov 29 20:03:15 CET 2007
+	- new DB provider parameter "dbinit": contains an DB-specific
+          SQL statement that is issued to the database immediately after
+	  connecting to it. Can be used to submit session settings.
+        - BDB provider
+	- added clear() and append() methods to providers.
 
-0.12  Wed Mar 14 14:00:38 CET 2007
-	- Admin interface
-	- File provider
-	- worker MPM
+0.17  Sun Jul 22 17:16:39 CEST 2007
+	- removed "use YAML" from Apache2::Translation to save memory where it
+	  is not used.
+	- moved Apache2::Translation::Config into a separate module.
+	- Fixup action
+
+0.16  Wed Apr 18 09:50:46 CEST 2007
+	- Bugfix: handle_eval() was called in the response phase but the global
+	  $r was not set up.
+	- PerlScript and CGIScript actions with parameter.
+
+0.15  Tue Apr 17 15:18:49 CEST 2007
+	- "notes" field added
+	- dump/restore provider methods added
+
+0.14  Wed Apr 11 15:45:38 CEST 2007
+	- Bugfix: Redirect now works if $r is the result of and ErrorDocument
+	- Bugfix: Redirect now returns RFC conforming Location headers
+	- Call action now accepts parameters and stores them in @ARGV
 
 0.13  Tue Mar 20 10:24:57 CET 2007
 	- Bugfix: Perlhandler: sub {...} with worker mpm
@@ -18,22 +38,14 @@ Revision history for Perl extension Apache2::Translation.
 	- PerlHandler action now pays attention to the method attribute of a
 	  handler
 
-0.14  Wed Apr 11 15:45:38 CEST 2007
-	- Bugfix: Redirect now works if $r is the result of and ErrorDocument
-	- Bugfix: Redirect now returns RFC conforming Location headers
-	- Call action now accepts parameters and stores them in @ARGV
+0.12  Wed Mar 14 14:00:38 CET 2007
+	- Admin interface
+	- File provider
+	- worker MPM
 
-0.15  Tue Apr 17 15:18:49 CEST 2007
-	- "notes" field added
-	- dump/restore provider methods added
+0.08  Tue Mar  7 21:49:50 CET 2006
+	- initial public version
 
-0.16  Wed Apr 18 09:50:46 CEST 2007
-	- Bugfix: handle_eval() was called in the response phase but the global
-	  $r was not set up.
-	- PerlScript and CGIScript actions with parameter.
-
-0.17  Sun Jul 22 17:16:39 CEST 2007
-	- removed "use YAML" from Apache2::Translation to save memory where it
-	  is not used.
-	- moved Apache2::Translation::Config into a separate module.
-	- Fixup action
+0.01  Mon Dec 12 16:36:09 2005
+	- original version; created by h2xs 1.23 with options
+		-A -b 5.8.0 -n Apache2::Translation -XS

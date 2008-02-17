@@ -26,3 +26,7 @@ sub handler {
   return Apache2::Const::OK;
 }
 </Perl>
+
+<VirtualHost recursion>
+    TranslationProvider BDB BDBEnv=@t_conf@/BDBENV
+</VirtualHost>

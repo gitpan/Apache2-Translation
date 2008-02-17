@@ -1,6 +1,6 @@
 package Apache2::Translation::Admin;
 
-use 5.008;
+use 5.8.8;
 use strict;
 use warnings;
 no warnings qw(uninitialized);
@@ -193,17 +193,16 @@ sub xfetch {
     }
     $el->[2]=~s/^\s+//;
     $el->[2]=~s/\s+$//;
-    my $lines=($el->[2]=~tr/\n//)+1;
-    $lines=10 if( $lines>10 );
-    my $clines=($el->[4]=~tr/\n//)+1;
-    $clines=10 if( $clines>10 );
+    my $extra_style="";
+    if( $r->param("ysize_${block}_$el->[1]")=~/(\d+)/ ) {
+      $extra_style=" style=\"height: ${1}px\"";
+    }
     push @{$current->{a}}, +{
 			     o=>$el->[1],
 			     a=>$el->[2],
-			     lines=>$lines,
 			     id=>$el->[3]||'',
-			     clines=>$clines,
 			     c=>$el->[4]||'',
+			     extra_style=>$extra_style,
 			    };
   }
   $stash->{BL}=\@l;
@@ -240,46 +239,52 @@ sub xupdate {
 						       uri newuri/;
   $prov->start;
 
-  eval {
-    $prov->begin;
+ RETRY: {
+    eval {
+      $prov->begin;
 
-    my ($oblock, $block, $oorder, $order, $id, $action, $note);
-    foreach my $a ($r->param) {
-      if( ($oblock, $block, $oorder, $order, $id)=
-	  $a=~/^action_(\d*)_(\d+)_(\d*)_(\d+)_(\d*)/ ) {
-	$action=$r->param($a);
-	$note=$r->param("note_${block}_${order}");
-	if( length $id ) {
-	  die "ERROR: Key=$okey, Uri=$ouri, Block=$oblock, Order=$oorder, Id=$id not updated\n"
-	    unless( 0<$prov->update( [$okey, $ouri, $oblock, $oorder, $id],
-				     [$key, $uri, $block, $order, $action, $note] ) );
-	} else {
-	  die "ERROR: Key=$key, Uri=$uri, Block=$block, Order=$order not inserted\n"
-	    unless( 0<$prov->insert( [$key, $uri, $block, $order, $action, $note] ) );
+      my ($oblock, $block, $oorder, $order, $id, $action, $note);
+      foreach my $a ($r->param) {
+	if( ($oblock, $block, $oorder, $order, $id)=
+	    $a=~/^action_(\d*)_(\d+)_(\d*)_(\d+)_(\d*)/ ) {
+	  $action=$r->param($a);
+	  $note=$r->param("note_${block}_${order}");
+	  if( length $id ) {
+	    die "ERROR: Key=$okey, Uri=$ouri, Block=$oblock, Order=$oorder, Id=$id not updated\n"
+	      unless( 0<$prov->update( [$okey, $ouri, $oblock, $oorder, $id],
+				       [$key, $uri, $block, $order, $action, $note] ) );
+	  } else {
+	    die "ERROR: Key=$key, Uri=$uri, Block=$block, Order=$order not inserted\n"
+	      unless( 0<$prov->insert( [$key, $uri, $block, $order, $action, $note] ) );
+	  }
+	} elsif( ($oblock, $oorder, $id)=
+		 $a=~/^delete_(\d*)_(\d+)_(\d*)/ ) {
+	  die "ERROR: Key=$okey, Uri=$ouri, Block=$oblock, Order=$oorder, Id=$id not deleted\n"
+	    unless( 0<$prov->delete( [$okey, $ouri, $oblock, $oorder, $id] ) );
 	}
-      } elsif( ($oblock, $oorder, $id)=
-	       $a=~/^delete_(\d*)_(\d+)_(\d*)/ ) {
-	die "ERROR: Key=$okey, Uri=$ouri, Block=$oblock, Order=$oorder, Id=$id not deleted\n"
-	  unless( 0<$prov->delete( [$okey, $ouri, $oblock, $oorder, $id] ) );
       }
+
+      $prov->commit
+    };
+
+    if($@) {
+      if( $@ eq "__RETRY__\n" ) {
+	$prov->rollback;
+	redo RETRY;
+      }
+      $r->log_reason( "$@" );
+      my $err="$@";
+      $err=~s/[\n\0-\37\177-\377]/ /g;
+      $r->err_headers_out->{'X-Error'}=$err;
+
+      $prov->rollback;
+      $prov->stop;
+
+      $key=$okey;
+      $uri=$ouri;
+
+      return Apache2::Const::SERVER_ERROR;
     }
-
-    $prov->commit
-  };
-
-  if($@) {
-    $r->log_reason( "$@" );
-    my $err="$@";
-    $err=~s/[\0-\37\177-\377]/ /g;
-    $r->err_headers_out->{'X-Error'}=$err;
-
-    $prov->rollback;
-    $prov->stop;
-
-    $key=$okey;
-    $uri=$ouri;
-
-    return Apache2::Const::SERVER_ERROR;
   }
 
   $prov->stop;
@@ -337,44 +342,3 @@ sub handler : method {
 1;
 
 __END__
-
-=head1 NAME
-
-Apache2::Translation::Admin - A WEB interface for Apache2::Translation
-
-=head1 SYNOPSIS
-
-PerlModule Apache2::Translation::Admin
-
-<Perl>
-    $My::Transadmin=
-      Apache2::Translation::Admin->new(provider_url=>'/-/config');
-</Perl>
-
-<Location /-/transadm/>
-    SetHandler modperl
-    PerlResponseHandler $My::Transadmin->handler
-</Location>
-
-<Location /-/config>
-    SetHandler modperl
-    PerlResponseHandler Apache2::Translation::Config
-</Location>
-
-=head1 DESCRIPTION
-
-
-
-=head1 AUTHOR
-
-Torsten Foertsch, E<lt>torsten.foertsch@gmx.netE<gt>
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (C) 2005-2007 by Torsten Foertsch
-
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself.
-
-
-=cut

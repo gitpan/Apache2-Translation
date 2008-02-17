@@ -1,6 +1,6 @@
 package Apache2::Translation;
 
-use 5.008;
+use 5.8.8;
 use strict;
 use warnings;
 no warnings qw(uninitialized);
@@ -27,14 +27,12 @@ use Apache2::Const -compile=>qw{:common :http
 				:types
 				:proxy
 				:options
-				ITERATE TAKE1 RAW_ARGS RSRC_CONF};
+				ITERATE TAKE1 RAW_ARGS RSRC_CONF
+				LOG_DEBUG};
 
-use Perl::AtEndOfScope;
+our $VERSION = '0.20';
 
-our $VERSION = '0.17';
-
-our ($cf,$r,$ctx);
-sub undef_cf_r_ctx {undef $_ for ($cf,$r,$ctx);}
+our ($cf,$r,$ctx,$skip_uri_cut);
 
 our ($URI, $REAL_URI, $METHOD, $QUERY_STRING, $FILENAME, $DOCROOT,
      $HOSTNAME, $PATH_INFO, $HEADERS, $REQUEST,
@@ -137,8 +135,7 @@ use constant {
   START=>0,
   PREPROC=>1,
   PROC=>2,
-  LAST_ROUND=>3,
-  DONE=>4,
+  DONE=>3,
 
   PRE_URI=>':PRE:',
 };
@@ -156,7 +153,6 @@ my @state_names=
    'start',
    'preproc',
    'proc',
-   'last round',
    'done',
   );
 
@@ -380,8 +376,20 @@ my %action_dispatcher;
 
      # some perl handler use $r->location to get some "base path", e.g.
      # Catalyst. The only way to set this location is this.
-     #add_note(config=>'PerlResponseHandler '.$what."\t".$MATCHED_URI);
-     add_note(config=>'PerlResponseHandler '.__PACKAGE__."::response\t".$MATCHED_URI);
+     #add_note(config=>$MATCHED_URI."\t".'PerlResponseHandler '.$what);
+     add_note(config=>$MATCHED_URI."\tPerlResponseHandler ".__PACKAGE__.'::response');
+     add_note(shortcut_maptostorage=>" ".$MATCHED_PATH_INFO);
+
+     # Translation done: return OK instead of DECLINED
+     $RC=Apache2::Const::OK;
+     return 1;
+   },
+
+   doc=>sub {
+     my ($action, $what)=@_;
+     add_note(response=>$what);
+     $r->handler('modperl');
+     add_note(config=>$MATCHED_URI."\tPerlResponseHandler ".__PACKAGE__.'::doc');
      add_note(shortcut_maptostorage=>" ".$MATCHED_PATH_INFO);
 
      # Translation done: return OK instead of DECLINED
@@ -435,8 +443,8 @@ my %action_dispatcher;
      my ($action, $what)=@_;
      foreach my $c (handle_eval( $what )) {
        add_note(config=>(ref $c
-			 ? "$c->[0]\t$c->[1]"
-			 : "$c\t$ctx->{' uri'}"));
+			 ? $c->[1]."\t".$c->[0]
+			 : $ctx->{' uri'}."\t$c"));
      }
      return 1;
    },
@@ -451,8 +459,8 @@ my %action_dispatcher;
      my ($action, $what)=@_;
      foreach my $c (handle_eval( $what )) {
        add_note(fixupconfig=>(ref $c
-			      ? "$c->[0]\t$c->[1]"
-			      : "$c\t$ctx->{' uri'}"));
+			      ? $c->[1]."\t".$c->[0]
+			      : $ctx->{' uri'}."\t$c"));
      }
      return 1;
    },
@@ -493,17 +501,32 @@ my %action_dispatcher;
      my ($action, $what)=@_;
      local @ARGV;
      ($what, @ARGV)=handle_eval( $what );
-     process( $cf->{provider}->fetch( $ctx->{' key'}, $what ) );
+     my @l=$cf->{provider}->fetch( $ctx->{' key'}, $what );
+     @l=$cf->{provider}->fetch( '*', $what ) unless( @l );
+     process( @l );
      return 1;
    },
 
    restart=>sub {
      my ($action, $what)=@_;
      if( length $what ) {
-       $action_dispatcher{$action}->('uri', $what);
+       my @l=handle_eval( $what );
+       if( length $l[0] ) {
+	 $r->uri($l[0]);
+       } else {
+	 $l[0]=$r->uri;
+       }
+       $l[1]=$cf->{key} unless( defined $l[1] );
+       $l[2]='' unless( defined $l[2] );
+       @{$ctx}{' uri', ' key', ' pathinfo'}=@l[0..2];
+       $ctx->{' uri'}=~s!/+!/!g;
+       die Apache2::Translation::Error->new( code=>Apache2::Const::HTTP_BAD_REQUEST,
+					     msg=>"BAD REQUEST: $ctx->{' uri'}" )
+	 unless( $ctx->{' uri'}=~m!^/! or $ctx->{' uri'} eq '*' );
      }
-     $ctx->{' state'}=START;
-     return 1;
+     $ctx->{' state'}=PREPROC;
+     $skip_uri_cut++;
+     return 0;
    },
 
    done=>sub {
@@ -644,7 +667,7 @@ sub add_config {
 }
 
 sub maptostorage {
-  my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
+  local ($cf,$r,$ctx);
   $r=$_[0];
 
   warn "\nMapToStorage\n" if( $DEBUG>1 );
@@ -652,11 +675,14 @@ sub maptostorage {
   my $rc=Apache2::Const::DECLINED;
 
   my @config=$r->notes->get(__PACKAGE__."::config");
+  #$r->notes->unset(__PACKAGE__."::config");
   if( @config ) {
-    add_config([map {my @l=split /\t/, $_, 2; @l==2 ? [@l] : $_} @config]);
+    add_config([map {my @l=split /\t/, $_, 2;
+		     @l==2 ? [reverse @l] : $_} @config]);
   }
 
   my $shortcut=$r->notes->get(__PACKAGE__."::shortcut_maptostorage");
+  #$r->notes->unset(__PACKAGE__."::shortcut_maptostorage");
   if( $shortcut ) {
     warn "PERLHANDLER: short cutting MapToStorage\n" if($DEBUG>1);
     unless(defined $r->path_info) {
@@ -671,7 +697,7 @@ sub maptostorage {
 }
 
 sub fixup {
-  my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
+  local ($cf,$r,$ctx);
   $r=$_[0];
 
   warn "\nFixup\n" if( $DEBUG>1 );
@@ -679,12 +705,16 @@ sub fixup {
   foreach my $do ($r->notes->get(__PACKAGE__."::fixup")) {
     handle_eval( $do );
   }
+  #$r->notes->unset(__PACKAGE__."::fixup");
 
   my @config=$r->notes->get(__PACKAGE__."::fixupconfig");
+  #$r->notes->unset(__PACKAGE__."::fixupconfig");
   if( @config ) {
-    add_config([map {my @l=split /\t/, $_, 2; @l==2 ? [@l] : $_} @config]);
+    add_config([map {my @l=split /\t/, $_, 2;
+		     @l==2 ? [reverse @l] : $_} @config]);
   }
   my $proxy=$r->notes->get(__PACKAGE__."::fixupproxy");
+  #$r->notes->unset(__PACKAGE__."::fixupproxy");
   if( length $proxy ) {
     my @l=split /\t/, $proxy;
     warn( ($l[0]==2?"REVERSE ":'')."PROXY to $l[1]\n" ) if($DEBUG>1);
@@ -697,18 +727,21 @@ sub fixup {
 }
 
 sub response {
-  my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
+  local ($cf,$r,$ctx);
   $r=$_[0];
 
   my $handler;
   my $what=$r->notes->get(__PACKAGE__."::response");
+  #$r->notes->unset(__PACKAGE__."::response");
   $what=handle_eval( $what );
 
-  no strict 'refs';
-  $handler=(defined(&{$what})?\&{$what}:
-	    defined(&{$what.'::handler'})?\&{$what.'::handler'}:
-	    $what->can('handler')?sub {$what->handler(@_)}:
-	    $what);
+  {
+    no strict 'refs';
+    $handler=(defined(&{$what})?\&{$what}:
+	      defined(&{$what.'::handler'})?\&{$what.'::handler'}:
+	      $what->can('handler')?sub {$what->handler(@_)}:
+	      $what);
+  }
 
   if( ref $handler eq 'CODE' ) {
     unshift @_, $what if( grep $_ eq 'method', attributes::get($handler) );
@@ -741,6 +774,21 @@ sub response {
   return Apache2::Const::SERVER_ERROR;
 }
 
+sub doc {
+  local ($cf,$r,$ctx);
+  $r=$_[0];
+
+  my $what=$r->notes->get(__PACKAGE__."::response");
+  #$r->notes->unset(__PACKAGE__."::response");
+
+  my @l=handle_eval( $what );
+  unshift @l, 'text/plain' if( @l==1 );
+  $r->content_type( $l[0] );
+  $r->print($l[1]);
+
+  return Apache2::Const::OK;
+}
+
 my @state_machine=
   (
    # START
@@ -758,35 +806,34 @@ my @state_machine=
      process( $cf->{provider}->fetch( $k, PRE_URI ) );
      $ctx->{' state'}=PROC
        if( $k eq $ctx->{' key'} and $ctx->{' state'}==PREPROC );
-     $ctx->{' state'}=LAST_ROUND
-       if( $ctx->{' state'}==PROC and $ctx->{' uri'} eq '/' );
    },
 
    # PROC
    sub {
-     process( $cf->{provider}->fetch( $ctx->{' key'}, $ctx->{' uri'} ) );
-     $ctx->{' uri'}=~s!(/[^/]*)$!! and
-       $ctx->{' pathinfo'}=$1.$ctx->{' pathinfo'};
-     unless( length $ctx->{' uri'} ) {
-       $ctx->{' uri'}='/';
-       $ctx->{' state'}=LAST_ROUND if( $ctx->{' state'}==PROC );
+     local $skip_uri_cut;
+     my $uri=$ctx->{' uri'};
+     process( $cf->{provider}->fetch( $ctx->{' key'}, $uri ) );
+     if( $ctx->{' state'}==PROC and !$skip_uri_cut ) {
+       if( $uri=~m!^[/*]$! and $ctx->{' uri'} eq $uri ) {
+	 $ctx->{' state'}=DONE;
+	 return;
+       }
+       if( $ctx->{' uri'}=~s!(/[^/]*)$!! ) {
+	 $ctx->{' pathinfo'}=$1.$ctx->{' pathinfo'};
+	 $ctx->{' uri'}='/' unless( length $ctx->{' uri'} );
+       }
      }
-   },
-
-   # LAST_ROUND
-   sub {
-     $ctx->{' state'}=PROC;	# fake PROC state
-     process( $cf->{provider}->fetch( $ctx->{' key'}, $ctx->{' uri'} ) );
-     $ctx->{' state'}=DONE if( $ctx->{' state'}==PROC );
    },
   );
 
 sub handler {
-  my $scope=Perl::AtEndOfScope->new( \&undef_cf_r_ctx );
+  local ($cf,$r,$ctx);
   $r=shift;
 
   $cf=Apache2::Module::get_config(__PACKAGE__, $r->server);
   my $prov=$cf->{provider};
+
+  $DEBUG=2 if( $r->server->loglevel==Apache2::Const::LOG_DEBUG );
 
   $ctx={' state'=>START};
   eval {

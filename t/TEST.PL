@@ -2,21 +2,18 @@
 
 use strict;
 use warnings FATAL => 'all';
+use DBI;
+use DBD::SQLite;
 
 use lib "../lib"; # test against the source lib for easier dev
 use lib map {("../blib/$_", "../../blib/$_")} qw(lib arch);
 
-my ($db,$user,$pw)=@ENV{qw/DB USER PW/};
-
-if( defined $db and length $db ) {
-  warn "# Using Database $db\n";
-} else {
-  warn "# Using Database dbi:SQLite:t/test.sqlite\n";
-}
+my ($db,$user,$pw,$dbinit)=@ENV{qw/DB USER PW/};
 
 package MyTest;
 
 use Apache::Test ();
+use Apache::TestUtil qw(t_catfile);
 use Apache::TestRunPerl ();
 use base qw(Apache::TestRunPerl);
 
@@ -24,15 +21,34 @@ use base qw(Apache::TestRunPerl);
 # replaced in generated httpd.conf
 sub new_test_config {
   my $self=shift;
-
   $self->{conf_opts}->{maxclients}=2;
   $self=$self->SUPER::new_test_config;
 
   my $serverroot=Apache::Test::vars->{serverroot};
   my $confdir=Apache::Test::vars->{t_conf};
+
   unless( defined $db and length $db ) {
     ($db,$user,$pw)=("dbi:SQLite:dbname=$serverroot/test.sqlite", '', '');
+    $dbinit="PRAGMA synchronous = OFF";
   }
+  warn "# Using Database $db, User '$user'\n";
+
+  my $dbh=DBI->connect( $db, $user, $pw,
+			{AutoCommit=>1, PrintError=>0, RaiseError=>1} )
+    or die "ERROR: Cannot connect to $db: $DBI::errstr\n";
+
+  eval {$dbh->do('PRAGMA synchronous = OFF')} if( defined $dbinit );
+  eval {$dbh->do('DROP TABLE cache')};
+  eval {$dbh->do('CREATE TABLE cache ( v int )')};
+  eval {$dbh->do('DROP TABLE sequences')};
+  eval {$dbh->do('CREATE TABLE sequences ( xname text, xvalue int )')};
+  eval {$dbh->do('DROP TABLE trans')};
+  eval {
+    $dbh->do( <<'SQL' );
+CREATE TABLE trans ( id int, xkey text, xuri text, xblock int, xorder int, xaction text, xnotes text )
+SQL
+  };
+  $dbh->disconnect;
 
   open my $f, ">$confdir/db.inc" or
     die "ERROR: Cannot write to $confdir/db.inc: $!\n";
@@ -81,4 +97,8 @@ EOF
   return $self;
 }
 
-MyTest->new->run(@ARGV);
+my($argv, $vars) =
+  Apache::TestConfig::filter_args(\@ARGV, \%Apache::TestConfig::Usage);
+%Apache::TestConfig::Argv = %$vars;
+
+my $t=MyTest->new->run(@ARGV);

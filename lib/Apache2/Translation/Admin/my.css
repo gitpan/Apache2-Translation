@@ -27,6 +27,7 @@ td.control img {
 }
 
 td.control {
+  width: 30px;
   vertical-align: middle;
   line-height: 1px;
   font-size: 1px;
@@ -123,76 +124,106 @@ td.tdcol2 input {
   width: 550px;
 }
 
+input:focus, textarea:focus, select:focus {
+  background-color: #ffc;
+}
+
 textarea.fetch_ta {
-  width: 680px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 textarea.comment_ta {
-  width: 190px;
+  width: 100%;
+  height: 100%;
   font-family: Helvetica, Verdana, Arial, sans-serif;
   font-style: italic;
   font-size: 6.5pt;
+  margin: 0;
+  padding: 0;
+}
+
+td.comment_ta {
+  width: 190px;
+  overflow: hidden;
+}
+
+td.tdc1, td.tdc2, td.tdc3 {
+  margin: 0;
+  padding: 0px;
+  overflow: hidden;
 }
 
 td.tdc1 {
-  margin: 0;
-  padding: 3px;
   background-color: #aaddaa;
+  background-image: url(tdc1-resize.gif);
+  background-position: bottom center;
+  background-repeat: no-repeat;
 }
 
 td.tdc2 {
-  margin: 0;
-  padding: 3px;
   background-color: #ddaaaa;
+  background-image: url(tdc2-resize.gif);
+  background-position: bottom center;
+  background-repeat: no-repeat;
 }
 
 td.tdc3 {
-  margin: 0;
-  padding: 3px;
   background-color: #aaaadd;
+  background-image: url(tdc3-resize.gif);
+  background-position: bottom center;
+  background-repeat: no-repeat;
 }
 
 tr.tdc {
   margin: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 table.tdc {
-  margin: 0;
-  padding: 0;
-  border-collapse: collapse;
+  width: 100%;
+  overflow: hidden;
 }
 
 table.inner_tdc {
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
   border-collapse: separate;
   border-spacing: 2px;
+  padding-bottom: 5px;
+  overflow: hidden;
 }
 
-table.inner_tdc tr, table.inner_tdc td, table.inner_tdc textarea {
+table.inner_tdc tr, table.inner_tdc td {
   margin: 0;
   padding: 0;
   height: 100%;
-}
-
-div.resizer {
-  height: 3px;
-  margin: 0;
-  margin-top: -2px;
-  margin-left: 2px;
-  margin-right: 2px;
-  width: 99.5%;
-  background-color: #ddddcc;
-  border-style: outset;
-  border-top-width: 2px;
-  border-bottom-width: 2px;
-  border-left-width: 0;
-  border-right-width: 0;
-  font-size: 1px;
-  cursor: n-resize;
+  overflow: hidden;
+  vertical-align: text-top;
 }
 
 img.pfeil {
   padding-bottom: 4px;
+}
+
+div#progress {
+  position: fixed;
+  z-index: 100;
+  right: 8px;
+  top: 8px;
+  width: 90px;
+  height: 15px;
+  border: ridge #996 2px;
+  background-color: #996;
+  overflow: hidden;
+}
+
+div#progress img {
+  margin: 0;
+  padding: 0;
 }

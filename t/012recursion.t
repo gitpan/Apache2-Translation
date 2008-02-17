@@ -1,0 +1,114 @@
+# -*- mode: cperl; cperl-indent-level: 2; cperl-continued-statement-offset: 2; indent-tabs-mode: nil -*-
+use strict;
+use warnings FATAL => 'all';
+
+use Test::More;
+use Apache::Test qw{:withtestmore};
+use Apache::TestUtil;
+use Apache::TestUtil qw/t_catfile/;
+use Apache::TestRequest qw{GET_BODY};
+use Apache2::Translation::BDB;
+use Apache2::Translation::File;
+
+plan tests=>1;
+#plan 'no_plan';
+
+# this test exercises 3 things:
+# 1) BDB provider used inside apache
+# 2) using a different provider in a VHost
+# 3) a bug that has subrequests prevented to work properly. The original
+#    problem was this. I had a SSL connection without SSLVerifyClient.
+#    Now I wanted for one url to require a client certificate and check
+#    that certificates DN. So I tried to issue a subrequest via lookup_uri
+#    to /require-client-cert. Then in MapToStorage of the subrequest
+#    I added an SSLVerifyClient directive to trigger an SSL renegotiation.
+#    After that I could check the DN:
+#
+# Cond: $r->connection->is_https and
+#       do {use Apache2::SubRequest;
+#         my $subr=$r->lookup_uri('/require-client-cert');
+#         $subr->status==Apache2::Const::HTTP_OK;
+#       } and
+#       $r->connection->ssl_var_lookup('SSL_CLIENT_S_DN') eq
+#         '...required_dn...'
+#
+# for the /require-client-cert URI this Config block was configured:
+#
+# Config: 'SSLVerifyClient optional',
+#         'SSLVerifyDepth 3'
+#
+# and it didn't work because Translation.pm used 3 global variables: $cf,
+# $r and $ctx, that were undef'ed each time the $scope object went out of
+# scope. Since the subrequest went through all the request phases there were
+# plenty of occasions to undef these 3 variables. Now they are stacked via
+# "local".
+
+Apache::TestRequest::module('recursion');
+my $config   = Apache::Test::config();
+my $hostport = Apache::TestRequest::hostport($config) || '';
+t_debug("connecting to $hostport");
+
+my $fprov=Apache2::Translation::File->new(configfile=>\*DATA);
+
+my $bdbenv=t_catfile(Apache::Test::vars->{t_conf}, 'BDBENV');
+t_debug "using BDBENV $bdbenv";
+my $prov=Apache2::Translation::BDB->new(bdbenv=>$bdbenv);
+
+$prov->start;
+$prov->begin;
+$prov->clear;
+$fprov->start;
+$prov->append($fprov);
+$fprov->stop;
+$prov->commit;
+$prov->stop;
+
+sub n {my @c=caller; $c[1].'('.$c[2].'): '.$_[0];}
+
+Apache::TestRequest::user_agent(reset => 1, requests_redirectable => 0);
+
+######################################################################
+## the real tests begin here                                        ##
+######################################################################
+
+ok t_cmp GET_BODY( '/main/PI' ),
+         '[/subr/pi ] [/subr/pi /pi] [/main/PI ] [/main/PI /PI]',
+   n '/main';
+
+__DATA__
+
+>>> 1 default /subr 0 0
+PerlHandler: sub {
+  my $r=shift;
+
+  $r->content_type( 'text/plain' );
+  $r->print( "subr\n" );
+  return 0;
+}
+
+>>> 2 default :PRE: 0 0
+Fixup:
+$r->notes->add(fixupnote=>"[$URI $PATH_INFO]");
+
+>>> 3 default /main 0 0
+Do:
+use Apache2::SubRequest;
+my $subr=$r->lookup_uri('/subr/pi');
+$r->notes->add(subrtnote=>scalar $subr->notes->get('transnote'));
+$r->notes->add(subrfnote=>scalar $subr->notes->get('fixupnote'));
+
+>>> 4 default /main 0 1
+PerlHandler: sub {
+  my $r=shift;
+
+  $r->content_type( 'text/plain' );
+  $r->print( join( ' ', map {
+    $r->notes->get($_);
+  } qw/subrtnote subrfnote transnote fixupnote/ ) );
+  return 0;
+}
+
+>>> 5 default :PRE: 0 1
+Do:
+$r->notes->add(transnote=>"[$URI $PATH_INFO]");
+

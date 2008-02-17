@@ -1,21 +1,26 @@
+# -*- mode: cperl; cperl-indent-level: 2; cperl-continued-statement-offset: 2; indent-tabs-mode: nil -*-
 use strict;
 use warnings FATAL => 'all';
 
 use Apache::Test qw{:withtestmore};
 use Test::More;
 use Apache::TestUtil;
-use Apache::TestRequest qw{GET_BODY GET};
+use Apache::TestRequest qw{GET_BODY GET OPTIONS};
 use DBI;
 use DBD::SQLite;
 use File::Basename 'dirname';
 
-plan tests=>23;
+plan tests=>28;
 #plan 'no_plan';
 
 my $serverroot=Apache::Test::vars->{serverroot};
 my ($db,$user,$pw)=@ENV{qw/DB USER PW/};
+$user='' unless defined $user;
+$pw='' unless defined $pw;
+my $dbinit='';
 unless( defined $db and length $db ) {
   ($db,$user,$pw)=("dbi:SQLite:dbname=$serverroot/test.sqlite", '', '');
+  $dbinit="PRAGMA synchronous = OFF";
 }
 t_debug "Using DB=$db USER=$user";
 my $dbh;
@@ -55,24 +60,11 @@ sub prepare_db {
 		     {AutoCommit=>1, PrintError=>0, RaiseError=>1} )
     or die "ERROR: Cannot connect to $db: $DBI::errstr\n";
 
-  eval {
-    $dbh->do( <<'SQL' );
-CREATE TABLE cache ( v int )
-SQL
-    $dbh->do( <<'SQL' );
-INSERT INTO cache( v ) VALUES( 0 )
-SQL
-  } or $dbh->do( <<'SQL' );
-UPDATE cache SET v=v+1
-SQL
-
-  eval {
-    $dbh->do( <<'SQL' );
-CREATE TABLE trans ( id int, xkey text, xuri text, xblock int, xorder int, xaction text )
-SQL
-  } or $dbh->do( <<'SQL' );
-DELETE FROM trans
-SQL
+  $dbh->do($dbinit) if( length $dbinit );
+  $dbh->do('DELETE FROM cache');
+  $dbh->do('INSERT INTO cache( v ) VALUES( 1 )');
+  $dbh->do('DELETE FROM sequences');
+  $dbh->do('DELETE FROM trans');
 }
 
 prepare_db;
@@ -125,12 +117,17 @@ $data=<<'EOD';
 11	k	/	0	0	Do: $r->notes->{t}=$r->notes->{t}." urik"
 12	k	/	0	1	Key: 'k2'
 13	k	/	0	2	State: 'PREPROC'
-14	k2	:PRE:	0	0	Do: $r->notes->{t}=$r->notes->{t}." prek2"
-15	k2	/	0	0	Do: $r->notes->{t}=$r->notes->{t}." urik2"
+14	k	/u	0	0	Do: $r->notes->{t}=$r->notes->{t}." uk"
+15	k	/u	0	1	Key: 'k2'
+16	k	/u	0	2	State: 'PREPROC'
+20	k2	:PRE:	0	0	Do: $r->notes->{t}=$r->notes->{t}." prek2"
+21	k2	/	0	0	Do: $r->notes->{t}=$r->notes->{t}." urik2"
+22	k2	/u	0	0	Do: $r->notes->{t}=$r->notes->{t}." uk2"
 EOD
 update_db;
 
 ok t_cmp GET_BODY( '/' ), 'init prek urik prek2 urik2', n 'Key State';
+ok t_cmp GET_BODY( '/u/1' ), 'init prek uk prek2 uk2 urik2', n 'Key State 2';
 
 # 'Done' finishes current state
 $data=<<'EOD';
@@ -219,11 +216,23 @@ $data=<<'EOD';
 24	k	:CALL:	1	1	Do: $r->notes->{t}=$r->notes->{t}." c4"
 30	k	/rstrt	0	0	Do: $r->notes->{t}=$r->notes->{t}." /rstrt"
 31	k	/rstrt	0	1	Restart: '/uri'
+33	k	/rstrt	0	2	Do: $r->notes->{t}=$r->notes->{t}." must-not-occur"
+33	k	/rstrt	1	0	Do: $r->notes->{t}=$r->notes->{t}." must-not-occur"
+40	k	/rstrt2	0	0	Do: $r->notes->{t}=$r->notes->{t}." /rstrt2"
+41	k	/rstrt2	0	1	Restart: '/uri', 'k2'
+50	k2	:PRE:	0	0	Do: $r->notes->{t}=$r->notes->{t}." init2";
+51	k2	/	0	0	Do: $r->notes->{t}=$r->notes->{t}." /:before2"; $KEY='k';
+52	k2	/	0	1	Call: ':CALL:'
+53	k2	/	0	2	Do: $r->notes->{t}=$r->notes->{t}." /:after2"; $KEY='k2';
+54	k2	/uri	0	0	Do: $r->notes->{t}=$r->notes->{t}." /uri:before2"; $KEY='k';
+55	k2	/uri	0	1	Call: ':CALL:'
+56	k2	/uri	0	2	Do: $r->notes->{t}=$r->notes->{t}." /uri:after2"; $KEY='k2';
 EOD
 update_db;
 
 ok t_cmp GET_BODY( '/uri' ), 'init /uri:before c1 /uri:after /:before c1 /:after', n 'Last as return from Call';
 ok t_cmp GET_BODY( '/rstrt' ), 'init /rstrt init /uri:before c1 /uri:after /:before c1 /:after', n 'Restart';
+ok t_cmp GET_BODY( '/rstrt2' ), 'init /rstrt2 init2 /uri:before2 c1 /uri:after2 /:before2 c1 /:after2', n 'Restart 2';
 
 # REDIRECT & ERROR
 $data=<<'EOD';
@@ -260,12 +269,22 @@ update_db;
 
 ok t_cmp GET_BODY( '/' ), qr/^init \d+\.\d+\.\d+\.\d+$/, n 'CLIENTIP';
 
+$resp=OPTIONS '*';
+ok t_cmp $resp->code, 200, n 'OPTIONS *';
 
+$resp=OPTIONS '/';
+ok t_cmp $resp->code, 200, n 'OPTIONS /';
 
-$dbh->do('DELETE FROM trans');
+{
+  # this is not possible using Apache::TestRequest.
+
+  use IO::Socket::INET ();
+  my $hostport=Apache::TestRequest::hostport;
+  my $s=IO::Socket::INET->new($hostport);
+  die "ERROR: Cannot create socket: $!" unless( $s );
+  $s->print("Options hallo HTTP/1.1\nHost: $hostport\nConnection: close\n\n");
+  my $l=<$s>;
+  ok $l=~/ 400 /, n 'OPTIONS hallo';
+}
+
 $dbh->disconnect;
-
-__END__
-# Local Variables: #
-# mode: cperl #
-# End: #

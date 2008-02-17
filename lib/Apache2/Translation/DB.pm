@@ -1,6 +1,6 @@
 package Apache2::Translation::DB;
 
-use 5.008;
+use 5.8.8;
 use strict;
 use warnings;
 no warnings qw(uninitialized);
@@ -11,12 +11,12 @@ use Class::Member::HASH -CLASS_MEMBERS=>qw/database user password table
 					   cachesize cachetbl cachecol
 					   singleton id is_initialized
 					   seqtbl seqnamecol seqvalcol
-					   idseqname
+					   idseqname dbinit
 					   _existing_keys
 					   _cache _cache_version _dbh/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.04';
+our $VERSION = '0.06';
 
 sub new {
   my $parent=shift;
@@ -39,6 +39,7 @@ sub new {
     $I->$m=$o{$m} if( exists $o{$m} );
   }
 
+  $I->_existing_keys={};
   $I->_cache={};
   if( $I->cachesize=~/^\d/ ) {
     eval "use Tie::Cache::LRU";
@@ -52,12 +53,14 @@ sub new {
 sub connect {
   my $I=shift;
 
-  return $I->_dbh=DBI->connect( $I->database, $I->user, $I->password,
+  my $dbh=$I->_dbh=DBI->connect( $I->database, $I->user, $I->password,
 				{
 				 AutoCommit=>1,
 				 PrintError=>0,
 				 RaiseError=>1,
 				} );
+  $dbh->do($I->dbinit) if( length $I->dbinit );
+  return $dbh;
 }
 
 sub start {
@@ -126,7 +129,7 @@ WHERE $key_col=?
 ORDER BY $block_col ASC, $order_col ASC
 SQL
 
-    my $stmt=$I->_dbh->prepare( $sql );
+    my $stmt=$I->_dbh->prepare_cached( $sql );
     $stmt->execute( $key, $uri );
     $ref=$stmt->fetchall_arrayref;
     map {defined $_->[4] ? 1 : ($_->[4]='')} @{$ref};
@@ -253,8 +256,10 @@ WHERE $key_col=?
   AND $id_col=?
 SQL
 
-    $stmt=$I->_dbh->prepare( $sql );
-    return $stmt->execute( @{$new}[0..5], @{$old}[0..4] );
+    $stmt=$I->_dbh->prepare_cached( $sql );
+    my $rc=$stmt->execute( @{$new}[0..5], @{$old}[0..4] );
+    $stmt->finish;
+    return $rc;
   } else {
     $sql=<<"SQL";
 UPDATE $table_name
@@ -270,8 +275,10 @@ WHERE $key_col=?
   AND $id_col=?
 SQL
 
-    $stmt=$I->_dbh->prepare( $sql );
-    return $stmt->execute( @{$new}[0..4], @{$old}[0..4] );
+    $stmt=$I->_dbh->prepare_cached( $sql );
+    my $rc=$stmt->execute( @{$new}[0..4], @{$old}[0..4] );
+    $stmt->finish;
+    return $rc;
   }
 }
 
@@ -290,15 +297,16 @@ sub insert {
     my $sv=$I->seqvalcol;
     my $ms=$I->idseqname;
 
-    $stmt=$I->_dbh->prepare( "SELECT $sv FROM $st WHERE $sn = ?" );
+    $stmt=$I->_dbh->prepare_cached( "SELECT $sv FROM $st WHERE $sn = ?" );
     $stmt->execute($ms);
     my ($newid)=@{$stmt->fetchall_arrayref};
     die "ERROR: $st table not set up: missing row with $sn=$ms\n"
       unless( ref $newid eq 'ARRAY' );
     $newid=$newid->[0];
 
-    $stmt=$I->_dbh->prepare( "UPDATE $st SET $sv=$sv+1 WHERE $sn = ?" );
+    $stmt=$I->_dbh->prepare_cached( "UPDATE $st SET $sv=$sv+1 WHERE $sn = ?" );
     $stmt->execute($ms);
+    $stmt->finish;
 
     if( length $notes_col ) {
       $sql=<<"SQL";
@@ -312,8 +320,10 @@ INSERT INTO $table_name ($key_col,
 VALUES (?, ?, ?, ?, ?, ?, ?)
 SQL
 
-      $stmt=$I->_dbh->prepare( $sql );
-      return $stmt->execute( @{$new}[0..5], $newid );
+      $stmt=$I->_dbh->prepare_cached( $sql );
+      my $rc=$stmt->execute( @{$new}[0..5], $newid );
+      $stmt->finish;
+      return $rc;
     } else {
       $sql=<<"SQL";
 INSERT INTO $table_name ($key_col,
@@ -324,8 +334,10 @@ INSERT INTO $table_name ($key_col,
 VALUES (?, ?, ?, ?, ?, ?)
 SQL
 
-      $stmt=$I->_dbh->prepare( $sql );
-      return $stmt->execute( @{$new}[0..4], $newid );
+      $stmt=$I->_dbh->prepare_cached( $sql );
+      my $rc=$stmt->execute( @{$new}[0..4], $newid );
+      $stmt->finish;
+      return $rc;
     }
   } else {
     if( length $notes_col ) {
@@ -339,8 +351,10 @@ INSERT INTO $table_name ($key_col,
 VALUES (?, ?, ?, ?, ?, ?)
 SQL
 
-      $stmt=$I->_dbh->prepare( $sql );
-      return $stmt->execute( @{$new}[0..5] );
+      $stmt=$I->_dbh->prepare_cached( $sql );
+      my $rc=$stmt->execute( @{$new}[0..5] );
+      $stmt->finish;
+      return $rc;
     } else {
       $sql=<<"SQL";
 INSERT INTO $table_name ($key_col,
@@ -351,8 +365,10 @@ INSERT INTO $table_name ($key_col,
 VALUES (?, ?, ?, ?, ?)
 SQL
 
-      $stmt=$I->_dbh->prepare( $sql );
-      return $stmt->execute( @{$new}[0..4] );
+      $stmt=$I->_dbh->prepare_cached( $sql );
+      my $rc=$stmt->execute( @{$new}[0..4] );
+      $stmt->finish;
+      return $rc;
     }
   }
 }
@@ -373,50 +389,61 @@ WHERE $key_col=?
   AND $id_col=?
 SQL
 
-  $stmt=$I->_dbh->prepare( $sql );
-  return $stmt->execute( @{$old} );
+  $stmt=$I->_dbh->prepare_cached( $sql );
+  my $rc=$stmt->execute( @{$old} );
+  $stmt->finish;
+  return $rc;
 }
 
-sub dump {
-  my $I=shift;
+sub clear {
+  my ($I)=@_;
+
+  my $table_name=$I->table;
+  my $stmt;
+  my $sql=<<"SQL";
+DELETE FROM $table_name
+SQL
+
+  $stmt=$I->_dbh->prepare_cached( $sql );
+  my $rc=$stmt->execute;
+  $stmt->finish;
+  return $rc;
+}
+
+sub iterator {
+  my ($I)=@_;
 
   my ($table_name,$key_col,$uri_col,$block_col,$order_col,$action_col,
-      $notes_col)=
-	map {$I->$_} qw/table key uri block order action notes/;
+      $notes_col,$id_col)=
+    map {$I->$_} qw/table key uri block order action notes id/;
 
   $notes_col="''" unless( length $notes_col );
-
+  $id_col="''" unless( length $id_col );
   my $sql=<<"SQL";
-SELECT $key_col, $uri_col, $block_col, $order_col, $action_col, $notes_col
+SELECT $key_col, $uri_col, $block_col, $order_col, $action_col,
+       $notes_col, $id_col
 FROM $table_name
 ORDER BY $key_col, $uri_col, $block_col ASC, $order_col ASC
 SQL
 
-  my $stmt=$I->_dbh->prepare( $sql );
+  my $stmt=$I->_dbh->prepare_cached( $sql );
   $stmt->execute;
-  return map {defined $_->[5] ? $_ : [@{$_}[0..4], '']}
-         @{$stmt->fetchall_arrayref};
-}
 
-sub restore {
-  my $I=shift;
-
-  eval {
-    $I->begin;
-    foreach my $el (@_) {
-      $I->insert($el);
+  return sub {
+    my $el;
+    if( $el=$stmt->fetchrow_arrayref ) {
+      return $el;
+    } else {
+      undef $stmt;
+      return;
     }
-    $I->commit;
   };
-  if( $@ ) {
-    warn "$@";
-    $I->rollback;
-  }
 }
 
 sub DESTROY {
   my $I=shift;
   if( defined $I->_dbh ) {
+    %{$I->_dbh->{CachedKids}}=();
     $I->_dbh->disconnect;
     undef $I->_dbh;
   }
@@ -424,25 +451,3 @@ sub DESTROY {
 
 1;
 __END__
-
-=head1 NAME
-
-Apache2::Translation::DB - A provider for Apache2::Translation
-
-=head1 DESCRIPTION
-
-See L<Apache2::Translation> for more information.
-
-=head1 AUTHOR
-
-Torsten Foertsch, E<lt>torsten.foertsch@gmx.netE<gt>
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (C) 2005-2007 by Torsten Foertsch
-
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself.
-
-
-=cut

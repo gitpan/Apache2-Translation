@@ -1,3 +1,4 @@
+# -*- mode: cperl; cperl-indent-level: 2; cperl-continued-statement-offset: 2; indent-tabs-mode: nil -*-
 use strict;
 use warnings FATAL => 'all';
 
@@ -11,7 +12,7 @@ use DBD::SQLite;
 use File::Basename 'dirname';
 use YAML ();
 
-plan tests=>28;
+plan tests=>35;
 #plan 'no_plan';
 
 {
@@ -33,8 +34,12 @@ plan tests=>28;
 my $serverroot=Apache::Test::vars->{serverroot};
 my $documentroot=Apache::Test::vars->{documentroot};
 my ($db,$user,$pw)=@ENV{qw/DB USER PW/};
+$user='' unless defined $user;
+$pw='' unless defined $pw;
+my $dbinit='';
 unless( defined $db and length $db ) {
   ($db,$user,$pw)=("dbi:SQLite:dbname=$serverroot/test.sqlite", '', '');
+  $dbinit="PRAGMA synchronous = OFF";
 }
 t_debug "Using DB=$db USER=$user";
 my $dbh;
@@ -73,24 +78,11 @@ sub prepare_db {
 		     {AutoCommit=>1, PrintError=>0, RaiseError=>1} )
     or die "ERROR: Cannot connect to $db: $DBI::errstr\n";
 
-  eval {
-    $dbh->do( <<'SQL' );
-CREATE TABLE cache ( v int )
-SQL
-    $dbh->do( <<'SQL' );
-INSERT INTO cache( v ) VALUES( 0 )
-SQL
-  } or $dbh->do( <<'SQL' );
-UPDATE cache SET v=v+1
-SQL
-
-  eval {
-    $dbh->do( <<'SQL' );
-CREATE TABLE trans ( id int, xkey text, xuri text, xblock int, xorder int, xaction text )
-SQL
-  } or $dbh->do( <<'SQL' );
-DELETE FROM trans
-SQL
+  $dbh->do($dbinit) if( length $dbinit );
+  $dbh->do('DELETE FROM cache');
+  $dbh->do('INSERT INTO cache( v ) VALUES( 1 )');
+  $dbh->do('DELETE FROM sequences');
+  $dbh->do('DELETE FROM trans');
 
   update_db
 }
@@ -124,7 +116,7 @@ $data=<<'EOD';
 
 18	k	/tstm	0	0	Perlhandler: 'TestModule'
 
-19	k	/tstsub	0	0	Perlhandler: sub {TestModule->handler(@_)}
+19	k	/tstsub	0	0	Perlhandler: sub {use TestModule; TestModule->handler(@_)}
 
 20	k	/conf	0	0	Perlhandler: 'TestConfig'
 
@@ -149,22 +141,30 @@ $data=<<'EOD';
 33	k	/redr/2	0	0	Redirect: '/otto/2'
 
 34	k	/call	0	0	Call: qw!sub 1!
+35	k	/call2	0	0	Key: 'k2'
+36	k	/call2	0	1	Call: qw!sub 2!
 
-35	k	/cgi4	0	0	Cgiscript: $r->document_root.$MATCHED_PATH_INFO
+37	k	/cgi4	0	0	Cgiscript: $r->document_root.$MATCHED_PATH_INFO
 
-36	k	/perl4	0	0	Perlscript: $r->document_root.$MATCHED_PATH_INFO
+38	k	/perl4	0	0	Perlscript: $r->document_root.$MATCHED_PATH_INFO
 
-37	k	/minfo	0	0	Perlhandler: 'TestHandler::meminfo'
+39	k	/minfo	0	0	Perlhandler: 'TestHandler::meminfo'
 
-38	k	/econf	0	0	Perlhandler: sub {require Apache2::Translation::Config; goto &Apache2::Translation::Config::handler;}
+40	k	/econf	0	0	Perlhandler: sub {require Apache2::Translation::Config; goto &Apache2::Translation::Config::handler;}
 
-39	k	/fixup	0	0	Perlhandler: sub {my $r=$_[0]; $r->content_type("text/plain"); my @n=$r->notes->get("fixup_add"); $r->print("@n"); 0;}
-40	k	/fixup	0	1	Fixup: $r->notes->add("fixup_add", "1")
-41	k	/fixup	0	2	Fixup: $r->notes->add("fixup_add", "2")
-42	k	/fixup	0	3	Fixup: $r->notes->add("fixup_add", "3")
+41	k	/fixup	0	0	Perlhandler: sub {my $r=$_[0]; $r->content_type("text/plain"); my @n=$r->notes->get("fixup_add"); $r->print("@n"); 0;}
+42	k	/fixup	0	1	Fixup: $r->notes->add("fixup_add", "1")
+43	k	/fixup	0	2	Fixup: $r->notes->add("fixup_add", "2")
+44	k	/fixup	0	3	Fixup: $r->notes->add("fixup_add", "3")
 
-100	k	sub	0	0	Do: $r->notes->{testnote}=$ARGV[0]
-101	k	sub	0	1	Perlhandler: sub {$_[0]->print($_[0]->notes->{testnote}); 0}
+45	k	/html	0	0	Doc: 'text/html', 'HTML'
+46	k	/txt0	0	0	Doc: 'TXT'
+47	k	/txt1	0	0	Doc: 'text/plain', 'TXT'
+
+100	k	sub	0	0	Do: $r->notes->{n1}=$ARGV[0]
+101	k	sub	0	1	Perlhandler: sub {$_[0]->print($_[0]->notes->{n1}.'/'.$_[0]->notes->{n2}); 0}
+102	*	sub	0	0	Do: $r->notes->{n2}=$ARGV[0]
+103	*	sub	0	1	Perlhandler: sub {$_[0]->print($_[0]->notes->{n1}.'/'.$_[0]->notes->{n2}); 0}
 EOD
 update_db;
 
@@ -249,9 +249,22 @@ ok t_cmp $resp->header('Location'),
          'http://'.Apache::TestRequest::hostport.'/otto/2',
          n '/redr/2: Location==http://'.Apache::TestRequest::hostport.'/otto/2';
 
-ok t_cmp GET_BODY( '/call' ), '1', n '/call';
+ok t_cmp GET_BODY( '/call' ), '1/', n '/call';
+ok t_cmp GET_BODY( '/call2' ), '/2', n '/call2';
 
 ok t_cmp GET_BODY( '/fixup' ), '1 2 3', n '/fixup';
+
+$resp=GET( '/html' );
+ok t_cmp $resp->content, 'HTML', n '/html body';
+ok t_cmp $resp->header('Content-Type'), 'text/html', n '/html content_type';
+
+$resp=GET( '/txt0' );
+ok t_cmp $resp->content, 'TXT', n '/txt0 body';
+ok t_cmp $resp->header('Content-Type'), 'text/plain', n '/txt0 content_type';
+
+$resp=GET( '/txt1' );
+ok t_cmp $resp->content, 'TXT', n '/txt1 body';
+ok t_cmp $resp->header('Content-Type'), 'text/plain', n '/txt1 content_type';
 
 SKIP: {
   skip "Need Linux::Smaps to report meminfo", 0 unless( need_module( 'Linux::Smaps' ) );
@@ -289,10 +302,4 @@ SKIP: {
   t_debug GET_BODY( '/minfo' );
 }
 
-$dbh->do('DELETE FROM trans');
 $dbh->disconnect;
-
-__END__
-# Local Variables: #
-# mode: cperl #
-# End: #
