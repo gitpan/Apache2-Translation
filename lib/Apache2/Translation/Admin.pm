@@ -24,7 +24,7 @@ use Class::Member::HASH -CLASS_MEMBERS=>qw/static types types_re templates
 					   provider_spec r title/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 our $STATIC;
 our $DEFAULTPROVIDERHOST='http://localhost';
 
@@ -141,8 +141,9 @@ sub xindex {
   my $k=$r->param('key');
   my @l=$prov->list_keys_and_uris( $k );
   $stash->{PREPROC}=[grep {$_->[1] eq ':PRE:'} @l];
+  $stash->{LOOKUPFILE}=[grep {$_->[1] eq ':LOOKUPFILE:'} @l];
   $stash->{URIS}=[grep {$_->[1]=~m!^/!} @l];
-  $stash->{SUBS}=[grep {$_->[1]!~m!^(?:/|:PRE:$)!} @l];
+  $stash->{SUBS}=[grep {$_->[1]!~m!^(?:/|:PRE:$|:LOOKUPFILE:$)!} @l];
   $stash->{KEYS}=
     [
      +{ name=>' - not set - ',

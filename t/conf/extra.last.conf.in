@@ -2,6 +2,7 @@ PerlLoadModule Apache2::Translation
 PerlLoadModule TestConfig
 
 PerlTransHandler Apache2::Translation
+PerlMapToStorageHandler Apache2::Translation
 
 TranslationKey default
 

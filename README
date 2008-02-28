@@ -5,6 +5,7 @@ SYNOPSIS
       LoadModule perl_module /path/to/mod_perl.so
       PerlLoadModule Apache2::Translation
       PerlTransHandler Apache2::Translation
+      PerlMapToStorageHandler Apache2::Translation
       TranslationEvalCache 1000
       TranslationKey MyKey
       <TranslationProvider DB>
@@ -134,6 +135,24 @@ DESCRIPTION
     rules are evaluated. From *PREPROC* it shifts to *PROC*. Now the rules
     with real uris are examined. When the *DONE* state is reached processing
     is finished.
+
+    There is a special state named *LOOKUPFILE*. It is only used for
+    subrequests that don't have an URI. For such requests the URI
+    translation phase of the request cycle is skipped. Hence a
+    *PerlTransHandler* would never be called. Such requests are results of
+    calling "$r->lookup_file" for example.
+
+    To catch also such requests install "Apache2::Translation" both as
+    *PerlTransHandler* as well as *PerlMapToStorageHandler*. Then if such a
+    subrequest occures the handler enters the *LOOKLUPFILE* state instead of
+    *PREPROC*. From *LOOKLUPFILE* it normally shifts to *PROC* unless it
+    executes a "Restart" action. In that case it shifts to *PREPROC*.
+
+    You have to set $MATCHED_URI to some initial value if you want to hop
+    through the *PROC* phase. A still empty $MATCHED_URI shifts from *PROC*
+    immediately to *DONE*.
+
+    Note: The *LOOKUPFILE* stuff is still somewhat experimental.
 
     You can control the current state by means of the "State", "Done" and
     "Restart" actions.

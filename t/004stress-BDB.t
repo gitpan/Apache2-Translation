@@ -15,7 +15,9 @@ my $stress_nproc=10;
 my $stress_reader=10;
 my $stress_count=15;
 
-plan tests=>3;
+plan $ENV{STRESS_BDB}
+     ? (tests=>3)
+     : (skip_all=>'set STRESS_BDB env variable to run this test');
 #plan 'no_plan';
 
 my $serverroot=Apache::Test::vars->{serverroot};
@@ -77,8 +79,8 @@ if( $pid==0 ) {
 
 cmp_deeply scalar(<$r>)+0, 6, 'init';
 
-warn "stress test -- please be patient\n";
-
+select( (select(STDERR), $|=1)[0] );
+print STDERR "stress test -- please be patient ...\n";
 
 pipe my($r2, $w2);
 my @reader_pids;
@@ -156,18 +158,19 @@ for( my $i=0; $i<$stress_nproc; $i++ ) {
 close $w;
 close $w2;
 my $sum=0;
-my $retry_total=0;
+my $resolved_deadlocks=0;
 while( defined( my $l=<$r> ) ) {
   $l=~/(\d+) (\d+)/ and do {
     $sum+=$1;
-    $retry_total+=$2;
+    $resolved_deadlocks+=$2;
   };
 }
-cmp_deeply $sum, 3*$stress_count*$stress_nproc, n "stress count ($retry_total deadlocks resolved)";
+print STDERR "                         $resolved_deadlocks deadlocks resolved\n";
+cmp_deeply $sum, 3*$stress_count*$stress_nproc, n "stress count";
 
 kill 'TERM', @reader_pids;
 $sum=0;
-$retry_total=0;
+my $retry_total=0;
 while( defined( my $l=<$r2> ) ) {
   $l=~/(\d+) (\d+)/ and do {
     $sum+=$1;

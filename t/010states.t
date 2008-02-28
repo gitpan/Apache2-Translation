@@ -36,7 +36,6 @@ SQL
 
   my $header=<<'EOD';
 #id	xkey	xuri	xblock	xorder	xaction
-0	default	:PRE:	0	0	Do: $DEBUG=0
 1	default	:PRE:	0	1	Do: $r->notes->{t}=$r->notes->{t}." init";
 2	default	:PRE:	0	2	PerlHandler: 'My::Handler'
 3	default	:PRE:	0	3	Key: 'k'
@@ -275,6 +274,7 @@ ok t_cmp $resp->code, 200, n 'OPTIONS *';
 $resp=OPTIONS '/';
 ok t_cmp $resp->code, 200, n 'OPTIONS /';
 
+t_client_log_error_is_expected();
 {
   # this is not possible using Apache::TestRequest.
 

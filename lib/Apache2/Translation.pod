@@ -7,6 +7,7 @@ Apache2::Translation - Configuring Apache dynamically
   LoadModule perl_module /path/to/mod_perl.so
   PerlLoadModule Apache2::Translation
   PerlTransHandler Apache2::Translation
+  PerlMapToStorageHandler Apache2::Translation
   TranslationEvalCache 1000
   TranslationKey MyKey
   <TranslationProvider DB>
@@ -133,6 +134,23 @@ there it shifts immediately to the I<PREPOC> state. Here all C<:PRE:>
 rules are evaluated. From I<PREPROC> it shifts to I<PROC>. Now the rules
 with real uris are examined. When the I<DONE> state is reached processing is
 finished.
+
+There is a special state named I<LOOKUPFILE>. It is only used for subrequests
+that don't have an URI. For such requests the URI translation phase of the
+request cycle is skipped. Hence a I<PerlTransHandler> would never be called.
+Such requests are results of calling C<$r-E<gt>lookup_file> for example.
+
+To catch also such requests install C<Apache2::Translation> both as
+I<PerlTransHandler> as well as I<PerlMapToStorageHandler>. Then if such a
+subrequest occures the handler enters the I<LOOKLUPFILE> state instead of
+I<PREPROC>. From I<LOOKLUPFILE> it normally shifts to I<PROC> unless it
+executes a C<Restart> action. In that case it shifts to I<PREPROC>.
+
+You have to set C<$MATCHED_URI> to some initial value if you want to hop
+through the I<PROC> phase. A still empty C<$MATCHED_URI> shifts from I<PROC>
+immediately to I<DONE>.
+
+B<Note>: The I<LOOKUPFILE> stuff is still somewhat experimental.
 
 You can control the current state by means of the C<State>, C<Done> and
 C<Restart> actions.

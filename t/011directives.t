@@ -55,7 +55,6 @@ SQL
 
   my $header=<<'EOD';
 #id	xkey	xuri	xblock	xorder	xaction
-0	default	:PRE:	0	0	Do: $DEBUG=0
 1	default	:PRE:	0	1	Config: 'ErrorDocument 404 /error'
 2	default	:PRE:	0	2	Key: 'k'
 EOD

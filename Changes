@@ -1,5 +1,13 @@
 Revision history for Perl extension Apache2::Translation.
 
+0.21  Thu Feb 28 14:55:20 CET 2008
+	- The Doc action now adds a Content-Length header
+	- :LOOKUPFILE: state like :PREPROC:, call handler also in MapToStorage
+
+0.20  Sun Feb 17 16:30:08 CET 2008
+	- better admin interface
+	- Doc action
+
 0.19  Sat Jan 12 17:54:18 CET 2008
 	- File provider can now read from a filehandle, e.g. \*DATA
 	- bugfix, see t/012recursion.t

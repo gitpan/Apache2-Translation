@@ -14,7 +14,7 @@
 					<input type="text" name="newkey" id="key[% counter %]" value="[% key | html %]">
 				</td>
 			</tr>
-			[%- IF uri==":PRE:" %]
+			[%- IF uri==":PRE:" or uri==":LOOKUPFILE:" %]
 			<input type="hidden" name="newuri" id="uri[% counter %]" value="[% uri | html %]">
 			[% ELSE %]
 			<tr>

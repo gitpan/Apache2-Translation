@@ -5,19 +5,20 @@ use strict;
 use warnings;
 no warnings qw(uninitialized);
 
-use Apache2::RequestRec;
-use Apache2::RequestUtil;
-use Apache2::RequestIO;
-use Apache2::ServerRec;
-use Apache2::ServerUtil;
-use Apache2::Connection;
-use Apache2::CmdParms;
-use Apache2::Directive;
-use Apache2::Module;
-use Apache2::Log;
-use Apache2::ModSSL;
-use APR::Table;
-use APR::SockAddr;
+use Apache2::RequestRec ();
+use Apache2::RequestUtil ();
+use Apache2::RequestIO ();
+use Apache2::ServerRec ();
+use Apache2::ServerUtil ();
+use Apache2::Connection ();
+use Apache2::CmdParms ();
+use Apache2::Directive ();
+use Apache2::Module ();
+use Apache2::Log ();
+use Apache2::ModSSL ();
+use APR::Table ();
+use APR::SockAddr ();
+use ModPerl::Util ();
 use attributes;
 use Apache2::Const -compile=>qw{:common :http
 				:conn_keepalive
@@ -30,9 +31,9 @@ use Apache2::Const -compile=>qw{:common :http
 				ITERATE TAKE1 RAW_ARGS RSRC_CONF
 				LOG_DEBUG};
 
-our $VERSION = '0.20';
+our $VERSION = '0.21';
 
-our ($cf,$r,$ctx,$skip_uri_cut);
+our ($cf,$r,$ctx,$skip_uri_cut,$m2s,$need_fixup,$need_m2s);
 
 our ($URI, $REAL_URI, $METHOD, $QUERY_STRING, $FILENAME, $DOCROOT,
      $HOSTNAME, $PATH_INFO, $HEADERS, $REQUEST,
@@ -132,42 +133,41 @@ tie $DEBUG, 'Apache2::Translation::_notes', member=>' debug';
 
 
 use constant {
-  START=>0,
-  PREPROC=>1,
-  PROC=>2,
-  DONE=>3,
+  START      => 0,
+  PREPROC    => 1,
+  PROC       => 2,
+  DONE       => 3,
+  LOOKUPFILE => 4,
 
-  PRE_URI=>':PRE:',
+  LOOKUPFILE_URI => ':LOOKUPFILE:',
+  PRE_URI        => ':PRE:',
 };
 
 my %states=
   (
-   start=>START,
-   preproc=>PREPROC,
-   proc=>PROC,
-   done=>DONE,
+   start      => START,
+   preproc    => PREPROC,
+   proc       => PROC,
+   done       => DONE,
+   lookupfile => LOOKUPFILE,
   );
 
-my @state_names=
-  (
-   'start',
-   'preproc',
-   'proc',
-   'done',
-  );
+my @state_names=qw/start preproc proc done lookupfile/;
 
 my %default_shift=
   (
-   &START   => &PREPROC,
-   &PREPROC => &PROC,
-   &PROC    => &PROC,
+   &START      => &PREPROC,
+   &PREPROC    => &PROC,
+   &LOOKUPFILE => &PROC,
+   &PROC       => &PROC,
   );
 
 my %next_state=
   (
-   &START   => &PREPROC,
-   &PREPROC => &PROC,
-   &PROC    => &DONE,
+   &START      => &PREPROC,
+   &PREPROC    => &PROC,
+   &LOOKUPFILE => &PROC,
+   &PROC       => &DONE,
   );
 
 my @directives=
@@ -325,9 +325,8 @@ sub handle_eval {
   unless( $sub ) {
     $sub=<<"SUB";
 sub {
-  return do {
-    $eval
-  };
+# line 1 "code fragment"
+  $eval
 }
 SUB
 
@@ -379,6 +378,7 @@ my %action_dispatcher;
      #add_note(config=>$MATCHED_URI."\t".'PerlResponseHandler '.$what);
      add_note(config=>$MATCHED_URI."\tPerlResponseHandler ".__PACKAGE__.'::response');
      add_note(shortcut_maptostorage=>" ".$MATCHED_PATH_INFO);
+     $need_m2s++;
 
      # Translation done: return OK instead of DECLINED
      $RC=Apache2::Const::OK;
@@ -391,6 +391,7 @@ my %action_dispatcher;
      $r->handler('modperl');
      add_note(config=>$MATCHED_URI."\tPerlResponseHandler ".__PACKAGE__.'::doc');
      add_note(shortcut_maptostorage=>" ".$MATCHED_PATH_INFO);
+     $need_m2s++;
 
      # Translation done: return OK instead of DECLINED
      $RC=Apache2::Const::OK;
@@ -404,6 +405,7 @@ my %action_dispatcher;
      $r->set_handlers( PerlResponseHandler=>'ModPerl::Registry' );
      add_note(fixupconfig=>'Options ExecCGI');
      add_note(fixupconfig=>'PerlOptions +ParseHeaders');
+     $need_fixup++;
      return 1;
    },
 
@@ -412,6 +414,7 @@ my %action_dispatcher;
      $r->filename( scalar handle_eval( $what ) ) unless( $what=~/^\s*$/ );
      $r->handler('cgi-script');
      add_note(fixupconfig=>'Options +ExecCGI');
+     $need_fixup++;
      return 1;
    },
 
@@ -424,6 +427,7 @@ my %action_dispatcher;
        $proxyreq=2;		# reverse proxy
      }
      add_note(fixupproxy=>"$proxyreq\t$real_url");
+     $need_fixup++;
      return 1;
    },
 
@@ -446,12 +450,14 @@ my %action_dispatcher;
 			 ? $c->[1]."\t".$c->[0]
 			 : $ctx->{' uri'}."\t$c"));
      }
+     $need_m2s++;
      return 1;
    },
 
    fixup=>sub {
      my ($action, $what)=@_;
      add_note(fixup=>$what);
+     $need_fixup++;
      return 1;
    },
 
@@ -462,6 +468,7 @@ my %action_dispatcher;
 			      ? $c->[1]."\t".$c->[0]
 			      : $ctx->{' uri'}."\t$c"));
      }
+     $need_fixup++;
      return 1;
    },
 
@@ -666,9 +673,17 @@ sub add_config {
   }
 }
 
+sub logger {
+  my $s=join('', @_);
+  foreach my $x (split /\n/, $s) {
+    $r->log->debug($x);
+  }
+}
+
 sub maptostorage {
   local ($cf,$r,$ctx);
   $r=$_[0];
+  local $SIG{__WARN__}=\&logger;
 
   warn "\nMapToStorage\n" if( $DEBUG>1 );
 
@@ -699,10 +714,12 @@ sub maptostorage {
 sub fixup {
   local ($cf,$r,$ctx);
   $r=$_[0];
+  local $SIG{__WARN__}=\&logger;
 
   warn "\nFixup\n" if( $DEBUG>1 );
 
   foreach my $do ($r->notes->get(__PACKAGE__."::fixup")) {
+    warn( "Fixup: $do\n" ) if($DEBUG>1);
     handle_eval( $do );
   }
   #$r->notes->unset(__PACKAGE__."::fixup");
@@ -729,6 +746,7 @@ sub fixup {
 sub response {
   local ($cf,$r,$ctx);
   $r=$_[0];
+  local $SIG{__WARN__}=\&logger;
 
   my $handler;
   my $what=$r->notes->get(__PACKAGE__."::response");
@@ -777,6 +795,7 @@ sub response {
 sub doc {
   local ($cf,$r,$ctx);
   $r=$_[0];
+  local $SIG{__WARN__}=\&logger;
 
   my $what=$r->notes->get(__PACKAGE__."::response");
   #$r->notes->unset(__PACKAGE__."::response");
@@ -784,6 +803,7 @@ sub doc {
   my @l=handle_eval( $what );
   unshift @l, 'text/plain' if( @l==1 );
   $r->content_type( $l[0] );
+  $r->headers_out->{'Content-Length'}=do { use bytes; length $l[1] };
   $r->print($l[1]);
 
   return Apache2::Const::OK;
@@ -793,7 +813,9 @@ my @state_machine=
   (
    # START
    sub {
-     @{$ctx}{' key', ' uri', ' pathinfo', ' state'}=($cf->{key}, $r->uri, '', PREPROC);
+     @{$ctx}{' key', ' uri', ' pathinfo', ' state'}=
+       ($cf->{key}, $r->uri, '', $m2s ? LOOKUPFILE : PREPROC);
+     return if( $m2s );
      $ctx->{' uri'}=~s!/+!/!g;
      die Apache2::Translation::Error->new( code=>Apache2::Const::HTTP_BAD_REQUEST,
 					   msg=>"BAD REQUEST: $ctx->{' uri'}" )
@@ -810,12 +832,15 @@ my @state_machine=
 
    # PROC
    sub {
-     local $skip_uri_cut;
      my $uri=$ctx->{' uri'};
+     unless( length $uri ) {
+       $ctx->{' state'}=DONE;
+       return;
+     }
      process( $cf->{provider}->fetch( $ctx->{' key'}, $uri ) );
      if( $ctx->{' state'}==PROC and !$skip_uri_cut ) {
        if( $uri=~m!^[/*]$! and $ctx->{' uri'} eq $uri ) {
-	 $ctx->{' state'}=DONE;
+	 $ctx->{' state'}=$next_state{$ctx->{' state'}};
 	 return;
        }
        if( $ctx->{' uri'}=~s!(/[^/]*)$!! ) {
@@ -824,11 +849,27 @@ my @state_machine=
        }
      }
    },
+
+   # DONE
+   'ERROR: Trying to cycle in DONE state',
+
+   # LOOKUPFILE
+   sub {
+     my $k=$ctx->{' key'};
+     process( $cf->{provider}->fetch( $k, LOOKUPFILE_URI ) );
+     $ctx->{' state'}=PROC
+       if( $k eq $ctx->{' key'} and $ctx->{' state'}==LOOKUPFILE );
+   },
+
   );
 
 sub handler {
-  local ($cf,$r,$ctx);
-  $r=shift;
+  local ($cf,$r,$ctx,$m2s,$need_fixup,$need_m2s);
+  $r=$_[0];
+  local $SIG{__WARN__}=\&logger;
+
+  $m2s=(ModPerl::Util::current_callback eq 'PerlMapToStorageHandler');
+  return Apache2::Const::DECLINED if( $m2s and length $r->uri );
 
   $cf=Apache2::Module::get_config(__PACKAGE__, $r->server);
   my $prov=$cf->{provider};
@@ -840,18 +881,22 @@ sub handler {
     $prov->start;
 
     while( $ctx->{' state'}!=DONE ) {
-      warn "\nState $state_names[$ctx->{' state'}]: uri = $ctx->{' uri'}\n"
+      warn "\nState $state_names[$ctx->{' state'}]: ".
+	   ($ctx->{' state'}==START?'...':"uri = $ctx->{' uri'}")."\n"
 	if( $DEBUG>1 );
+      local $skip_uri_cut;
       $state_machine[$ctx->{' state'}]->();
     }
 
-    $r->push_handlers( PerlFixupHandler=>__PACKAGE__.'::fixup' );
-    $r->push_handlers( PerlMapToStorageHandler=>__PACKAGE__.'::maptostorage' );
+    $prov->stop;
+
+    $r->push_handlers( PerlFixupHandler=>__PACKAGE__.'::fixup' )
+      if( $need_fixup );
+    $r->push_handlers( PerlMapToStorageHandler=>__PACKAGE__.'::maptostorage' )
+      if( !$m2s and $need_m2s );
 
     warn "proceed with URI '".$r->uri."' and FILENAME '".$r->filename."'\n"
       if( $DEBUG );
-
-    $prov->stop;
   };
 
   if( $@ ) {
@@ -904,6 +949,7 @@ sub handler {
     }
   }
 
+  return maptostorage($r) if( $m2s );
   return $RC if( defined $RC );
   return length $r->filename ? Apache2::Const::OK : Apache2::Const::DECLINED;
 }

@@ -5,12 +5,12 @@ use warnings FATAL => 'all';
 use Test::More;
 use Apache::Test qw{:withtestmore};
 use Apache::TestUtil;
-use Apache::TestUtil qw/t_catfile/;
+use Apache::TestUtil qw/t_catfile t_rmtree/;
 use Apache::TestRequest qw{GET_BODY};
 use Apache2::Translation::BDB;
 use Apache2::Translation::File;
 
-plan tests=>1;
+plan tests=>3;
 #plan 'no_plan';
 
 # this test exercises 3 things:
@@ -52,6 +52,7 @@ my $fprov=Apache2::Translation::File->new(configfile=>\*DATA);
 
 my $bdbenv=t_catfile(Apache::Test::vars->{t_conf}, 'BDBENV');
 t_debug "using BDBENV $bdbenv";
+t_rmtree $bdbenv;
 my $prov=Apache2::Translation::BDB->new(bdbenv=>$bdbenv);
 
 $prov->start;
@@ -75,6 +76,14 @@ ok t_cmp GET_BODY( '/main/PI' ),
          '[/subr/pi ] [/subr/pi /pi] [/main/PI ] [/main/PI /PI]',
    n '/main';
 
+ok t_cmp GET_BODY( '/main/PI?1' ),
+         '[/subr/subr ] [/subr/subr /subr] [/main/PI ] [/main/PI /PI]',
+   n '/main?1';
+
+ok t_cmp GET_BODY( '/main/PI?2' ),
+         '[LOOKUPFILE M2S] [LOOKUPFILE FIXUP] [/main/PI ] [/main/PI /PI]',
+   n '/main?2';
+
 __DATA__
 
 >>> 1 default /subr 0 0
@@ -93,9 +102,12 @@ $r->notes->add(fixupnote=>"[$URI $PATH_INFO]");
 >>> 3 default /main 0 0
 Do:
 use Apache2::SubRequest;
-my $subr=$r->lookup_uri('/subr/pi');
-$r->notes->add(subrtnote=>scalar $subr->notes->get('transnote'));
-$r->notes->add(subrfnote=>scalar $subr->notes->get('fixupnote'));
+my $method=$r->args?'lookup_file':'lookup_uri';
+$r->filename('/');              # necessary for lookup_file.
+                                # It dumps core if not set.
+my $subr=$r->$method('/subr/pi');
+$r->notes->add(subrtnote=>join( ':', $subr->notes->get('transnote') ));
+$r->notes->add(subrfnote=>join( ':', $subr->notes->get('fixupnote') ));
 
 >>> 4 default /main 0 1
 PerlHandler: sub {
@@ -111,4 +123,21 @@ PerlHandler: sub {
 >>> 5 default :PRE: 0 1
 Do:
 $r->notes->add(transnote=>"[$URI $PATH_INFO]");
+
+>>> 6 default :LOOKUPFILE: 0 0
+Cond: $r->main->args==1
+
+>>> 7 default :LOOKUPFILE: 0 1
+Restart: '/subr/subr'
+
+>>> 9 default :LOOKUPFILE: 1 0
+Do: $MATCHED_URI='/subr/subr'
+
+>>> 10 default :LOOKUPFILE: 1 1
+Fixup:
+$r->notes->add(fixupnote=>"[LOOKUPFILE FIXUP]");
+
+>>> 11 default :LOOKUPFILE: 1 2
+Do:
+$r->notes->add(transnote=>"[LOOKUPFILE M2S]");
 

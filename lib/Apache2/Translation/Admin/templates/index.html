@@ -67,6 +67,38 @@
 		[%- counter=counter+1 %]
 		[%- END %]
 
+		<!-- Lookup file Phase -->
+		<h2>
+			<a href="#" class="opener" title="new block list"
+			   onclick="return xnewkey(this, ':LOOKUPFILE:');"><img src="newlist.gif"></a>
+			Lookup File Phase
+		</h2>
+		[%- FOREACH k=LOOKUPFILE %]
+
+		<!-- [% k.0 | html | replace('-', '%2D') %]: [% k.1 | html | replace('-', '%2D') %] -->
+		<h3><a id="a[% counter %]" class="opener" href="#"
+			   title="open/close this block list"
+			   onclick="return xtoggle( [% counter %], this )">
+				<img src="closed.gif">
+			</a>
+			<a href="#" class="opener" id="reload[% counter %]"
+			   title="reload this block list"
+			   onclick="return xreload( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="reload.gif">
+			</a>
+			<a href="#" class="opener" id="save[% counter %]"
+			   title="save this block list"
+			   onclick="return xupdate( [% counter %], this );"
+			   style="visibility: hidden;">
+				<img src="save.gif">
+			</a>
+			<span class="header" id="header[% counter %]">[% k.0 | html %]</span>
+		</h3>
+		<div id="div[% counter %]" style="display: none;" ADM_KEY="[% k.0 | html %]" ADM_URI="[% k.1 | html %]"></div>
+		[%- counter=counter+1 %]
+		[%- END %]
+
 		<!-- Process Phase -->
 		<h2>
 			<a href="#" class="opener" title="new block list"
