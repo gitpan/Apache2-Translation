@@ -204,6 +204,8 @@ sub begin {
 
   $I->_txn=$I->bdbenv->txn_begin
     ( $I->parent_txn ? $I->parent_txn : undef, DB_TXN_NOSYNC );
+  die "ERROR: Cannot create transaction: $BerkeleyDB::Error\n"
+    unless( defined $I->_txn );
   $I->_txn->Txn($I->_db1, $I->_db2, $I->extra_db);
 }
 

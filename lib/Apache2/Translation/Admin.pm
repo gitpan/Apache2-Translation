@@ -12,6 +12,10 @@ use Apache2::ServerRec;
 use Apache2::ServerUtil;
 use Apache2::Connection;
 use Apache2::Log;
+use Apache2::SubRequest;
+use Apache2::Filter;
+use APR::Brigade;
+use APR::Bucket;
 use APR::Table;
 use APR::Socket;
 use Apache2::Const -compile=>qw{:common :http};
@@ -24,7 +28,7 @@ use Class::Member::HASH -CLASS_MEMBERS=>qw/static types types_re templates
 					   provider_spec r title/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 our $STATIC;
 our $DEFAULTPROVIDERHOST='http://localhost';
 
@@ -60,9 +64,9 @@ sub _config_provider_SPEC {
     $class='Apache2::Translation::'.$class;
   }
   $I->provider=$class->new( @{$param}[1..$#{$param}] );
-  local $"=';';
+  local $"='; ';
   my %x=@{$param}[1..$#{$param}];
-  $I->title="($param->[0]:@{[map qq{$_=$x{$_}}, keys %x]})";
+  $I->title="($param->[0]: @{[map qq{$_=$x{$_}}, keys %x]})";
 }
 
 sub _fetch_provider_LWP {
@@ -138,25 +142,59 @@ sub xindex {
   my $stash={q=>$r, I=>$I};
   $prov->start;
 
-  my $k=$r->param('key');
-  my @l=$prov->list_keys_and_uris( $k );
+  my $key=$r->param('key');
+  my @l;
+  {
+    no re 'eval';
+    my $k=$key;
+    $k='.' unless( length $k );
+    $k=eval {qr/$k/};
+    unless( defined $k ) {
+      $k=qr/./;
+      $key='';
+    }
+    eval {
+      local $SIG{ALRM}=sub { die "__ALRM__\n"; };
+      alarm 5;
+      eval {
+	@l=grep {$_->[0]=~/$k/} $prov->list_keys_and_uris;
+      };
+      alarm 0;
+    };
+    alarm 0;
+
+    if( $@ ) {
+      @l=$prov->list_keys_and_uris;
+      $key='';
+    }
+  }
+
   $stash->{PREPROC}=[grep {$_->[1] eq ':PRE:'} @l];
   $stash->{LOOKUPFILE}=[grep {$_->[1] eq ':LOOKUPFILE:'} @l];
   $stash->{URIS}=[grep {$_->[1]=~m!^/!} @l];
   $stash->{SUBS}=[grep {$_->[1]!~m!^(?:/|:PRE:$|:LOOKUPFILE:$)!} @l];
-  $stash->{KEYS}=
-    [
-     +{ name=>' - not set - ',
-	value=>'',
-	selected=>'' },
-     map {
-       +{ name=>$_->[0],
-	  value=>$_->[0],
-	  selected=>($_->[0] eq $k ? "selected" : "") };
-     } $prov->list_keys
-    ];
+  $stash->{KEY}=$key;
 
   $prov->stop;
+
+  my $menu=$r->uri;
+  $menu=~s!/[^/]*$!/menu.html!;
+  my $subr=$r->lookup_uri($menu);
+  $subr->add_output_filter( sub {
+			      my ($f, $bb) = @_;
+			      while (my $e = $bb->first) {
+				$e->read(my $buf);
+				$menu.=$buf;
+				$e->delete;
+			      }
+			      return Apache2::Const::OK;
+			    });
+  $menu='';
+  if( $subr->status==Apache2::Const::HTTP_OK ) {
+    $subr->run;
+    $menu='' unless( $subr->status==Apache2::Const::HTTP_OK );
+  }
+  $stash->{MENU}=$menu;
 
   $I->tt->process('index.html', $stash, $r)
     or do {
@@ -324,7 +362,7 @@ sub handler : method {
 
   $r=Apache2::Request->new($r);
 
-  $r->content_type('text/html');
+  $r->content_type('text/html; charset=UTF-8');
 
   my $a=$r->param('a');
   if( $a eq '' ) {

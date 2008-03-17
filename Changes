@@ -1,5 +1,10 @@
 Revision history for Perl extension Apache2::Translation.
 
+0.22  Mon Mar 17 17:49:54 CET 2008
+	- $SIG{__WARN__} handler
+	- some additional images that were forgot to include in 0.21
+	- include an additional menu if configured
+
 0.21  Thu Feb 28 14:55:20 CET 2008
 	- The Doc action now adds a Content-Length header
 	- :LOOKUPFILE: state like :PREPROC:, call handler also in MapToStorage

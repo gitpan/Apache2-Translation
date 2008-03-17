@@ -40,7 +40,7 @@ README: lib/Apache2/Translation.pod mk_README.sh
 	./mk_README.sh
 
 rpm: dist
-	$(PERL) -i -pe 's/^(Version:\s*).*/$${1}$(VERSION)/' perl-Util-ServerPagesBDB.spec
+	$(PERL) -i -pe 's/^(Version:\s*).*/$${1}$(VERSION)/' perl-Apache2-Translation.spec
 	rpmbuild -ba perl-Apache2-Translation.spec
 EOF
 }

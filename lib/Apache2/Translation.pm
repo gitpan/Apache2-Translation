@@ -31,7 +31,7 @@ use Apache2::Const -compile=>qw{:common :http
 				ITERATE TAKE1 RAW_ARGS RSRC_CONF
 				LOG_DEBUG};
 
-our $VERSION = '0.21';
+our $VERSION = '0.22';
 
 our ($cf,$r,$ctx,$skip_uri_cut,$m2s,$need_fixup,$need_m2s);
 
@@ -676,7 +676,7 @@ sub add_config {
 sub logger {
   my $s=join('', @_);
   foreach my $x (split /\n/, $s) {
-    $r->log->debug($x);
+    $r->log->notice($x);
   }
 }
 
@@ -868,8 +868,10 @@ sub handler {
   $r=$_[0];
   local $SIG{__WARN__}=\&logger;
 
+  return Apache2::Const::DECLINED if( $r->notes->{__PACKAGE__.'-done'} );
+  $r->notes->{__PACKAGE__.'-done'}=1;
+
   $m2s=(ModPerl::Util::current_callback eq 'PerlMapToStorageHandler');
-  return Apache2::Const::DECLINED if( $m2s and length $r->uri );
 
   $cf=Apache2::Module::get_config(__PACKAGE__, $r->server);
   my $prov=$cf->{provider};

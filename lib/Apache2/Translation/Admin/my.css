@@ -50,7 +50,7 @@ h2 {
 
 h1 {
   font-family: Helvetica, Verdana, Arial, sans-serif;
-  font-size: 14pt;
+  font-size: 12pt;
   font-style: normal;
   font-weight: bold;
 }
@@ -211,11 +211,14 @@ img.pfeil {
   padding-bottom: 4px;
 }
 
-div#progress {
+div#progress, div#menucontainer {
   position: fixed;
   z-index: 100;
   right: 8px;
   top: 8px;
+}
+
+div#progress {
   width: 90px;
   height: 15px;
   border: ridge #996 2px;
@@ -226,4 +229,33 @@ div#progress {
 div#progress img {
   margin: 0;
   padding: 0;
+}
+
+div#menucontainer {
+  border: ridge #996 2px;
+  background-color: #eeb;
+  overflow: hidden;
+  text-align: right;
+  padding: 0 2pt;
+  cursor: pointer;
+}
+
+div#menu {
+  border-top: solid #996 1px;
+  padding-top: 2pt;
+}
+
+div#menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+div#menu ul li a {
+  text-decoration: none;
+  color: #00f;
+}
+
+div#menu ul li a:hover {
+  color: #f00;
 }

@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Apache2-Translation
-version:             0.21
+version:             0.22
 abstract:            Configuring Apache dynamically
 license:             ~
 generated_by:        ExtUtils::MakeMaker version 6.36
