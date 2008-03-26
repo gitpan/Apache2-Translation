@@ -602,6 +602,10 @@ APACHE CONFIGURATION DIRECTIVES
         begins and ends with the same quotation character (double quote or
         single quote) they are also stripped off.
 
+        If "VALUE" is not quoted or is quoted with double quote characters
+        then it is subject to environment variable expansion. All substrings
+        that match "${VAR}" are replaced by the environment variable "VAR".
+
         The provider object is then created by:
 
          $Apache2::Translation::class->new( NAME1=>VALUE1, NAME2=>VALUE2, ... );

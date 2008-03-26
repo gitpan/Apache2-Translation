@@ -1,5 +1,10 @@
 Revision history for Perl extension Apache2::Translation.
 
+0.23  Wed Mar 26 17:56:03 CET 2008
+	- ServerRoot passed to provider as Root-parameter
+	- File and BDB provider accepts Root-Parameter
+	- environment variable expansion in provider spec
+
 0.22  Mon Mar 17 17:49:54 CET 2008
 	- $SIG{__WARN__} handler
 	- some additional images that were forgot to include in 0.21

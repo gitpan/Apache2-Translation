@@ -20,8 +20,8 @@ BuildRequires: perl = %{perl_version} p_mod_perl >= 2.000002010 perl-Class-Membe
 Requires:     opt-modperl opt-apache
 Autoreqprov:  on
 Summary:      Apache2::Translation
-Version:      0.22
-Release:      3
+Version:      0.23
+Release:      1
 Source:       Apache2-Translation-%{version}.tar.gz
 BuildRoot:    %{_tmppath}/%{name}-%{version}-build
 BuildRequires: httpd22-prefork-devel httpd22-worker-devel

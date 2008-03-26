@@ -2,18 +2,22 @@ package Apache2::Translation::File;
 
 use 5.8.8;
 use strict;
-use warnings;
-no warnings qw(uninitialized);
 
 use Fcntl qw/:DEFAULT :flock/;
 use Class::Member::HASH -CLASS_MEMBERS=>qw/configfile notesdir
+					   root
 					   _cache timestamp/;
 our @CLASS_MEMBERS;
 
+use File::Spec;
 use Apache2::Translation::_base;
 use base 'Apache2::Translation::_base';
 
-our $VERSION = '0.04';
+use warnings;
+no warnings qw(uninitialized);
+undef $^W;
+
+our $VERSION = '0.05';
 
 sub new {
   my $parent=shift;
@@ -64,10 +68,17 @@ sub _unin {
 sub start {
   my $I=shift;
   my $time;
+  my $fname;
   if( ref($I->configfile) ) {
     $time=1;
   } else {
-    $time=(stat $I->configfile)[9];
+    $fname=$I->configfile;
+    if( length $I->root ) {
+      unless( File::Spec->file_name_is_absolute($fname) ) {
+	$fname=File::Spec->catfile( $I->root, $fname );
+      }
+    }
+    $time=(stat $fname)[9];
   }
 
   if( $time!=$I->timestamp ) {
@@ -77,12 +88,12 @@ sub start {
     if( ref($I->configfile) ) {
       $f=$I->configfile;
     } else {
-      open $f, $I->configfile or do {
+      open $f, $fname or do {
 	warn( "ERROR: Cannot open translation provider config file: ".
-	      $I->configfile.": $!\n" );
+	      $fname.": $!\n" );
 	return;
       };
-      flock $f, LOCK_SH or die "ERROR: Cannot flock ".$I->configfile.": $!\n";
+      flock $f, LOCK_SH or die "ERROR: Cannot flock $fname: $!\n";
     }
 
     my $l;
@@ -129,9 +140,16 @@ sub stop {}
 sub _getnote {
   my ($I, $id)=@_;
 
+  my $dname=$I->notesdir;
+  if( defined $dname and length $I->root ) {
+    unless( File::Spec->file_name_is_absolute($dname) ) {
+      $dname=File::Spec->catdir( $I->root, $dname );
+    }
+  }
+
   my $content;
   my $f=undef;
-  open $f, $I->notesdir.'/'.$id and $content=<$f>;
+  open $f, File::Spec->catfile( $dname, $id ) and $content=<$f>;
   close $f;
   return $content;
 }
@@ -156,7 +174,7 @@ sub fetch {
   }
 }
 
-sub can_notes {length $_[0]->notesdir;}
+sub can_notes {defined $_[0]->notesdir;}
 
 sub list_keys {
   my $I=shift;
@@ -189,6 +207,20 @@ sub commit {
 
   return "0 but true" if( ref $I->configfile );
 
+  my $fname=$I->configfile;
+  if( length $I->root ) {
+    unless( File::Spec->file_name_is_absolute($fname) ) {
+      $fname=File::Spec->catfile( $I->root, $fname );
+    }
+  }
+
+  my $dname=$I->notesdir;
+  if( defined $dname and length $I->root ) {
+    unless( File::Spec->file_name_is_absolute($dname) ) {
+      $dname=File::Spec->catdir( $I->root, $dname );
+    }
+  }
+
   my ($w_id, $w_key, $w_uri, $w_blk, $w_ord)=((3)x5);
   foreach my $v (values %{$I->_cache}) {
     foreach my $el (@{$v}) {
@@ -200,20 +232,20 @@ sub commit {
     }
   }
 
-  sysopen my $fh, $I->configfile, O_RDWR | O_CREAT or do {
-    die "ERROR: Cannot open ".$I->configfile.": $!\n";
+  sysopen my($fh), $fname, O_RDWR | O_CREAT or do {
+    die "ERROR: Cannot open $fname: $!\n";
   };
-  flock $fh, LOCK_EX or die "ERROR: Cannot flock ".$I->configfile.": $!\n";
-  my $oldtime=(stat $I->configfile)[9];
+  flock $fh, LOCK_EX or die "ERROR: Cannot flock $fname: $!\n";
+  my $oldtime=(stat $fname)[9];
 
   truncate $fh, 0 or
-    do {close $fh; die "ERROR: Cannot truncate to ".$I->configfile.": $!\n"};
+    do {close $fh; die "ERROR: Cannot truncate to $fname: $!\n"};
 
   my $fmt=">>> %@{[$w_id-1]}s %-${w_key}s %-${w_uri}s %${w_blk}s %${w_ord}s\n";
   printf $fh '#'.$fmt, qw/id key uri blk ord/ or
-    do {close $fh; die "ERROR: Cannot write to ".$I->configfile.": $!\n"};
+    do {close $fh; die "ERROR: Cannot write to $fname: $!\n"};
   print $fh "# action\n" or
-    do {close $fh; die "ERROR: Cannot write to ".$I->configfile.": $!\n"};
+    do {close $fh; die "ERROR: Cannot write to $fname: $!\n"};
 
   $fmt=("##################################################################\n".
 	">>> %${w_id}s %-${w_key}s %-${w_uri}s %${w_blk}s %${w_ord}s\n%s\n");
@@ -222,14 +254,14 @@ sub commit {
   foreach my $v (map {$I->_cache->{$_}} sort keys %{$I->_cache}) {
     foreach my $el (sort {$a->[0] <=> $b->[0] or $a->[1] <=> $b->[1]} @{$v}) {
       printf $fh $fmt, @{$el}[3..5,0..2] or
-	do {close $fh; die "ERROR: Cannot write to ".$I->configfile.": $!\n"};
-      if( $I->notesdir and length $el->[6] ) {
+	do {close $fh; die "ERROR: Cannot write to $fname: $!\n"};
+      if( defined $dname and length $el->[6] ) {
 	my $notesf=undef;
-	if( open $notesf, '>'.$I->notesdir.'/'.$el->[3] ) {
+	if( open $notesf, '>'.File::Spec->catfile($dname, $el->[3]) ) {
 	  print $notesf $el->[6];
 	  close $notesf;
 	} else {
-	  warn "WARNING: Cannot open ".$I->notesdir."/$el->[3]: $!\n";
+	  warn "WARNING: Cannot open ".File::Spec->catfile($dname, $el->[3]).": $!\n";
 	}
       }
       $#{$el}=5;
@@ -241,21 +273,21 @@ sub commit {
   my $time=time;
   $time=$oldtime+1 if( $time<=$oldtime );
 
-  utime( $time, $time, $I->configfile );
+  utime( $time, $time, $fname );
   $I->timestamp=$time;
 
-  if( length $I->notesdir ) {
-    opendir my $d, $I->notesdir;
+  if( defined $dname ) {
+    opendir my($d), $dname;
     if( $d ) {
       my %h=map {($_->[3]=>1)} map {@$_} values %{$I->_cache};
       while( my $el=readdir $d ) {
-	unlink $I->notesdir.'/'.$el if( $el=~/^\d+$/ and !exists $h{$el} );
+	unlink File::Spec->catfile($dname, $el) if( $el=~/^\d+$/ and !exists $h{$el} );
       }
       closedir $d;
     }
   }
 
-  close $fh or die "ERROR: Cannot write to ".$I->configfile.": $!\n";
+  close $fh or die "ERROR: Cannot write to $fname: $!\n";
 
   return "0 but true";
 }

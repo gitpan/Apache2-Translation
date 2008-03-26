@@ -2,20 +2,23 @@ package Apache2::Translation::BDB;
 
 use 5.8.8;
 use strict;
-use warnings;
-no warnings qw(uninitialized);
 
+use File::Spec;
 use BerkeleyDB;
 use Storable ();
 use Class::Member::HASH -CLASS_MEMBERS=>qw/bdbenv readonly extra_db
 					   _db1 _db2 _txn parent_txn
-					   _connected/;
+					   _connected root/;
 our @CLASS_MEMBERS;
 
 use Apache2::Translation::_base;
 use base 'Apache2::Translation::_base';
 
-our $VERSION = '0.01';
+use warnings;
+no warnings qw(uninitialized);
+undef $^W;
+
+our $VERSION = '0.02';
 
 # _db1 maps id=>[block, order, action, id, key, uri]
 # _db2 is a secondary index of (key,uri). It is associated with _db1
@@ -47,6 +50,8 @@ sub new {
 	unless( ref($I->bdbenv) or length $I->bdbenv );
 
       my $dir=$I->bdbenv;
+      $dir=File::Spec->catdir( $I->root, $dir )
+	if( length $I->root and !File::Spec->file_name_is_absolute($dir) );
       -d $dir or mkdir $dir;
     } else {
       if( $last_created_provider ) {
@@ -73,6 +78,8 @@ sub connect {
     }
   } else {
     my $dir=$I->bdbenv;
+    $dir=File::Spec->catdir( $I->root, $dir )
+      if( length $I->root and !File::Spec->file_name_is_absolute($dir) );
     $I->bdbenv=$env=BerkeleyDB::Env->new
       (
        -Home  => $dir,

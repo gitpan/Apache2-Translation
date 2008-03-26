@@ -1,8 +1,16 @@
 #!perl
 
 use 5.8.8;
-use ModPerl::MM ();
-use Apache::TestMM qw(test clean);
+BEGIN {
+  eval {
+    require ModPerl::MM;
+    require Apache::TestMM;
+  };
+  if( $@ ) {
+    exit 0;
+  }
+  Apache::TestMM->import( qw(test clean) );
+}
 
 # accept the configs from command line
 Apache::TestMM::filter_args();
@@ -20,6 +28,7 @@ ModPerl::MM::WriteMakefile(
 			'Test::Deep'=>0,
 			'Template'=>2.15,
 			'Apache2::ModSSL'=>0,
+			'Apache2::Request'=>0,
 			'YAML'=>0,
 		       },
   ABSTRACT_FROM     => 'lib/Apache2/Translation.pod',

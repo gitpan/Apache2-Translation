@@ -31,7 +31,7 @@ use Apache2::Const -compile=>qw{:common :http
 				ITERATE TAKE1 RAW_ARGS RSRC_CONF
 				LOG_DEBUG};
 
-our $VERSION = '0.22';
+our $VERSION = '0.23';
 
 our ($cf,$r,$ctx,$skip_uri_cut,$m2s,$need_fixup,$need_m2s);
 
@@ -224,7 +224,8 @@ sub postconfig {
 	} else {
 	  $class='Apache2::Translation::'.$class;
 	}
-	$cfg->{provider}=$class->new( @{$param}[1..$#{$param}] );
+	$cfg->{provider}=$class->new( Root=>Apache2::ServerUtil::server_root,
+				      @{$param}[1..$#{$param}] );
       }
     }
   }
@@ -263,7 +264,10 @@ sub TranslationContainer {
     if( length($_) ) {
       my @x=split( /\s+/, $_, 2 );
       $x[0]=lc $x[0];
-      $x[1]=~s/^(["'])(.*)\1$/$2/;
+      unless( $x[1]=~s/^'(.*)'$/$1/s ) {
+	$x[1]=~s/^"(.*)"$/$1/s;
+	$x[1]=~s/\$\{(\w+)\}/$ENV{$1}/ge;
+      }
       @x;
     } else {
       ();
