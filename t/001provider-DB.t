@@ -7,7 +7,6 @@ use Apache::TestUtil;
 use Test::More;
 use Test::Deep;
 use DBI;
-use DBD::SQLite;
 use File::Basename 'dirname';
 
 plan tests=>23;

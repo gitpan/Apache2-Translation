@@ -1,6 +1,6 @@
 package Apache2::Translation::Admin;
 
-use 5.8.8;
+use 5.008008;
 use strict;
 use warnings;
 no warnings qw(uninitialized);
@@ -28,7 +28,7 @@ use Class::Member::HASH -CLASS_MEMBERS=>qw/static types types_re templates
 					   provider_spec r title/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 our $STATIC;
 our $DEFAULTPROVIDERHOST='http://localhost';
 

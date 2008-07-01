@@ -1,6 +1,6 @@
 package Apache2::Translation::DB;
 
-use 5.8.8;
+use 5.008008;
 use strict;
 use warnings;
 no warnings qw(uninitialized);
@@ -16,7 +16,7 @@ use Class::Member::HASH -CLASS_MEMBERS=>qw/database user password table
 					   _cache _cache_version _dbh/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 sub new {
   my $parent=shift;

@@ -20,7 +20,7 @@ BuildRequires: perl = %{perl_version} p_mod_perl >= 2.000002010 perl-Class-Membe
 Requires:     opt-modperl opt-apache
 Autoreqprov:  on
 Summary:      Apache2::Translation
-Version:      0.23
+Version:      0.24
 Release:      1
 Source:       Apache2-Translation-%{version}.tar.gz
 BuildRoot:    %{_tmppath}/%{name}-%{version}-build
@@ -31,6 +31,7 @@ BuildRequires: opt-modperl opt-apache
 
 %define layout_base /opt/mod_perl
 %define perl_v %(perl -e 'printf "%vd", $^V')
+%define perl_arch %(perl -MConfig -e 'print $Config{archname}')
 %define _mandir %layout_base/man
 %define perl_sitebin %layout_base/bin
 
@@ -58,7 +59,7 @@ make &&
 %install
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
 make DESTDIR=$RPM_BUILD_ROOT \
-     INSTALLSITEARCH=%layout_base/%{perl_v}/i586-linux-thread-multi \
+     INSTALLSITEARCH=%layout_base/%{perl_v}/%{perl_arch} \
      INSTALLSITELIB=%layout_base/%{perl_v} \
      INSTALLSITEBIN=%perl_sitebin \
      INSTALLSITESCRIPT=%perl_sitebin \

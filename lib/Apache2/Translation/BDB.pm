@@ -1,6 +1,6 @@
 package Apache2::Translation::BDB;
 
-use 5.8.8;
+use 5.008008;
 use strict;
 
 use File::Spec;
@@ -18,7 +18,7 @@ use warnings;
 no warnings qw(uninitialized);
 undef $^W;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 # _db1 maps id=>[block, order, action, id, key, uri]
 # _db2 is a secondary index of (key,uri). It is associated with _db1
@@ -353,6 +353,7 @@ sub extra {
 sub timestamp {
   my ($I, $stamp)=@_;
 
+  no warnings qw(numeric);
   return $I->extra( "\ttmstmp", $stamp )+0;
 }
 

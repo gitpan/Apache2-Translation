@@ -7,7 +7,6 @@ use Test::More;
 use Apache::TestUtil;
 use Apache::TestRequest qw{GET_BODY GET OPTIONS};
 use DBI;
-use DBD::SQLite;
 use File::Basename 'dirname';
 
 plan tests=>28;

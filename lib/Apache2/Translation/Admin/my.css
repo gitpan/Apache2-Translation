@@ -243,6 +243,7 @@ div#menucontainer {
 div#menu {
   border-top: solid #996 1px;
   padding-top: 2pt;
+  cursor: default;
 }
 
 div#menu ul {

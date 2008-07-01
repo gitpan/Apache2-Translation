@@ -1,6 +1,6 @@
 package Apache2::Translation;
 
-use 5.8.8;
+use 5.008008;
 use strict;
 use warnings;
 no warnings qw(uninitialized);
@@ -31,9 +31,9 @@ use Apache2::Const -compile=>qw{:common :http
 				ITERATE TAKE1 RAW_ARGS RSRC_CONF
 				LOG_DEBUG};
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
-our ($cf,$r,$ctx,$skip_uri_cut,$m2s,$need_fixup,$need_m2s);
+our ($cf,$r,$skip_uri_cut,$m2s,$need_fixup,$need_m2s, %CTX);
 
 our ($URI, $REAL_URI, $METHOD, $QUERY_STRING, $FILENAME, $DOCROOT,
      $HOSTNAME, $PATH_INFO, $HEADERS, $REQUEST,
@@ -52,28 +52,7 @@ BEGIN {
 }
 
 BEGIN {
-  package Apache2::Translation::_ctx;
-
-  use strict;
-
-  sub TIESCALAR {
-    my $class=shift;
-    bless {@_}=>$class;
-  }
-
-  sub STORE {
-    my $I=shift;
-    $ctx->{$I->{member}}=shift;
-  }
-
-  sub FETCH {
-    my $I=shift;
-    return $ctx->{$I->{member}};
-  }
-}
-
-BEGIN {
-  package Apache2::Translation::_notes;
+  package Apache2::Translation::n;
 
   use strict;
 
@@ -123,13 +102,10 @@ tie $C, 'Apache2::Translation::_r', member=>'connection';
 tie $CLIENTIP, 'Apache2::Translation::_r', member=>'connection->remote_ip';
 tie $KEEPALIVE, 'Apache2::Translation::_r', member=>'connection->keepalive';
 
-tie $MATCHED_URI, 'Apache2::Translation::_ctx', member=>' uri';
-tie $MATCHED_PATH_INFO, 'Apache2::Translation::_ctx', member=>' pathinfo';
-tie $STATE, 'Apache2::Translation::_ctx', member=>' state';
-tie $KEY, 'Apache2::Translation::_ctx', member=>' key';
-tie $RC, 'Apache2::Translation::_ctx', member=>' rc';
-
-tie $DEBUG, 'Apache2::Translation::_notes', member=>' debug';
+tie $MATCHED_URI, 'Apache2::Translation::n', member=>'uri';
+tie $MATCHED_PATH_INFO, 'Apache2::Translation::n', member=>'pathinfo';
+tie $KEY, 'Apache2::Translation::n', member=>'key';
+tie $DEBUG, 'Apache2::Translation::n', member=>'debug';
 
 
 use constant {
@@ -452,7 +428,7 @@ my %action_dispatcher;
      foreach my $c (handle_eval( $what )) {
        add_note(config=>(ref $c
 			 ? $c->[1]."\t".$c->[0]
-			 : $ctx->{' uri'}."\t$c"));
+			 : $MATCHED_URI."\t$c"));
      }
      $need_m2s++;
      return 1;
@@ -470,7 +446,7 @@ my %action_dispatcher;
      foreach my $c (handle_eval( $what )) {
        add_note(fixupconfig=>(ref $c
 			      ? $c->[1]."\t".$c->[0]
-			      : $ctx->{' uri'}."\t$c"));
+			      : $MATCHED_URI."\t$c"));
      }
      $need_fixup++;
      return 1;
@@ -478,7 +454,7 @@ my %action_dispatcher;
 
    key=>sub {
      my ($action, $what)=@_;
-     $ctx->{' key'}=handle_eval( $what );
+     $KEY=handle_eval( $what );
      return 1;
    },
 
@@ -486,7 +462,7 @@ my %action_dispatcher;
      my ($action, $what)=@_;
      $what=lc handle_eval( $what );
      if( exists $states{$what} ) {
-       $ctx->{' state'}=$states{$what};
+       $STATE=$states{$what};
      } else {
        $r->warn(__PACKAGE__.": invalid state $what");
      }
@@ -512,7 +488,7 @@ my %action_dispatcher;
      my ($action, $what)=@_;
      local @ARGV;
      ($what, @ARGV)=handle_eval( $what );
-     my @l=$cf->{provider}->fetch( $ctx->{' key'}, $what );
+     my @l=$cf->{provider}->fetch( $KEY, $what );
      @l=$cf->{provider}->fetch( '*', $what ) unless( @l );
      process( @l );
      return 1;
@@ -529,20 +505,20 @@ my %action_dispatcher;
        }
        $l[1]=$cf->{key} unless( defined $l[1] );
        $l[2]='' unless( defined $l[2] );
-       @{$ctx}{' uri', ' key', ' pathinfo'}=@l[0..2];
-       $ctx->{' uri'}=~s!/+!/!g;
+       ($MATCHED_URI, $KEY, $MATCHED_PATH_INFO)=@l[0..2];
+       $MATCHED_URI=~s!/+!/!g;
        die Apache2::Translation::Error->new( code=>Apache2::Const::HTTP_BAD_REQUEST,
-					     msg=>"BAD REQUEST: $ctx->{' uri'}" )
-	 unless( $ctx->{' uri'}=~m!^/! or $ctx->{' uri'} eq '*' );
+					     msg=>"BAD REQUEST: $MATCHED_URI" )
+	 unless( $MATCHED_URI=~m!^/! or $MATCHED_URI eq '*' );
      }
-     $ctx->{' state'}=PREPROC;
+     $STATE=PREPROC;
      $skip_uri_cut++;
      return 0;
    },
 
    done=>sub {
      my ($action, $what)=@_;
-     $ctx->{' state'}=$next_state{$ctx->{' state'}};
+     $STATE=$next_state{$STATE};
      return 0;
    },
 
@@ -577,7 +553,7 @@ sub process {
   my $all_skipped=1;
 
   if( $rec ) {
-    warn "\nState $state_names[$ctx->{' state'}]: uri = $ctx->{' uri'}\n"
+    warn "\nState $state_names[$STATE]: uri = $MATCHED_URI\n"
       if( $DEBUG==1 );
     $block=$rec->[0];
     #warn "\ncond=$cond\nblock=$block: $rec->[1]: $rec->[2]\n";
@@ -606,7 +582,7 @@ sub process {
   }
 
   if( $all_skipped ) {
-    $ctx->{' state'}=$default_shift{$ctx->{' state'}};
+    $STATE=$default_shift{$STATE};
   }
 
   return 1;
@@ -680,12 +656,12 @@ sub add_config {
 sub logger {
   my $s=join('', @_);
   foreach my $x (split /\n/, $s) {
-    $r->log->notice($x);
+    $r->server->log->notice($x);
   }
 }
 
 sub maptostorage {
-  local ($cf,$r,$ctx);
+  local ($cf,$r);
   $r=$_[0];
   local $SIG{__WARN__}=\&logger;
 
@@ -716,7 +692,7 @@ sub maptostorage {
 }
 
 sub fixup {
-  local ($cf,$r,$ctx);
+  local ($cf,$r);
   $r=$_[0];
   local $SIG{__WARN__}=\&logger;
 
@@ -748,7 +724,7 @@ sub fixup {
 }
 
 sub response {
-  local ($cf,$r,$ctx);
+  local ($cf,$r);
   $r=$_[0];
   local $SIG{__WARN__}=\&logger;
 
@@ -797,7 +773,7 @@ sub response {
 }
 
 sub doc {
-  local ($cf,$r,$ctx);
+  local ($cf,$r);
   $r=$_[0];
   local $SIG{__WARN__}=\&logger;
 
@@ -817,39 +793,39 @@ my @state_machine=
   (
    # START
    sub {
-     @{$ctx}{' key', ' uri', ' pathinfo', ' state'}=
+     ($KEY, $MATCHED_URI, $MATCHED_PATH_INFO, $STATE)=
        ($cf->{key}, $r->uri, '', $m2s ? LOOKUPFILE : PREPROC);
      return if( $m2s );
-     $ctx->{' uri'}=~s!/+!/!g;
+     $MATCHED_URI=~s!/+!/!g;
      die Apache2::Translation::Error->new( code=>Apache2::Const::HTTP_BAD_REQUEST,
-					   msg=>"BAD REQUEST: $ctx->{' uri'}" )
-       unless( $ctx->{' uri'}=~m!^/! or $ctx->{' uri'} eq '*' );
+					   msg=>"BAD REQUEST: $MATCHED_URI" )
+       unless( $MATCHED_URI=~m!^/! or $MATCHED_URI eq '*' );
    },
 
    # PREPROC
    sub {
-     my $k=$ctx->{' key'};
+     my $k=$KEY;
      process( $cf->{provider}->fetch( $k, PRE_URI ) );
-     $ctx->{' state'}=PROC
-       if( $k eq $ctx->{' key'} and $ctx->{' state'}==PREPROC );
+     $STATE=PROC
+       if( $k eq $KEY and $STATE==PREPROC );
    },
 
    # PROC
    sub {
-     my $uri=$ctx->{' uri'};
+     my $uri=$MATCHED_URI;
      unless( length $uri ) {
-       $ctx->{' state'}=DONE;
+       $STATE=DONE;
        return;
      }
-     process( $cf->{provider}->fetch( $ctx->{' key'}, $uri ) );
-     if( $ctx->{' state'}==PROC and !$skip_uri_cut ) {
-       if( $uri=~m!^[/*]$! and $ctx->{' uri'} eq $uri ) {
-	 $ctx->{' state'}=$next_state{$ctx->{' state'}};
+     process( $cf->{provider}->fetch( $KEY, $uri ) );
+     if( $STATE==PROC and !$skip_uri_cut ) {
+       if( $uri=~m!^[/*]$! and $MATCHED_URI eq $uri ) {
+	 $STATE=$next_state{$STATE};
 	 return;
        }
-       if( $ctx->{' uri'}=~s!(/[^/]*)$!! ) {
-	 $ctx->{' pathinfo'}=$1.$ctx->{' pathinfo'};
-	 $ctx->{' uri'}='/' unless( length $ctx->{' uri'} );
+       if( $MATCHED_URI=~s!(/[^/]*)$!! ) {
+	 $MATCHED_PATH_INFO=$1.$MATCHED_PATH_INFO;
+	 $MATCHED_URI='/' unless( length $MATCHED_URI );
        }
      }
    },
@@ -859,16 +835,16 @@ my @state_machine=
 
    # LOOKUPFILE
    sub {
-     my $k=$ctx->{' key'};
+     my $k=$KEY;
      process( $cf->{provider}->fetch( $k, LOOKUPFILE_URI ) );
-     $ctx->{' state'}=PROC
-       if( $k eq $ctx->{' key'} and $ctx->{' state'}==LOOKUPFILE );
+     $STATE=PROC
+       if( $k eq $KEY and $STATE==LOOKUPFILE );
    },
 
   );
 
 sub handler {
-  local ($cf,$r,$ctx,$m2s,$need_fixup,$need_m2s);
+  local ($cf,$r,$RC,$STATE,$m2s,$need_fixup,$need_m2s,%CTX);
   $r=$_[0];
   local $SIG{__WARN__}=\&logger;
 
@@ -882,16 +858,16 @@ sub handler {
 
   $DEBUG=2 if( $r->server->loglevel==Apache2::Const::LOG_DEBUG );
 
-  $ctx={' state'=>START};
+  $STATE=START;
   eval {
     $prov->start;
 
-    while( $ctx->{' state'}!=DONE ) {
-      warn "\nState $state_names[$ctx->{' state'}]: ".
-	   ($ctx->{' state'}==START?'...':"uri = $ctx->{' uri'}")."\n"
+    while( $STATE!=DONE ) {
+      warn "\nState $state_names[$STATE]: ".
+	   ($STATE==START?'...':"uri = $MATCHED_URI")."\n"
 	if( $DEBUG>1 );
       local $skip_uri_cut;
-      $state_machine[$ctx->{' state'}]->();
+      $state_machine[$STATE]->();
     }
 
     $prov->stop;

@@ -1,9 +1,11 @@
 --- #YAML:1.0
 name:                Apache2-Translation
-version:             0.23
+version:             0.24
 abstract:            Configuring Apache dynamically
 license:             ~
-generated_by:        ExtUtils::MakeMaker version 6.36
+author:              
+    - Torsten Foertsch <torsten.foertsch@gmx.net>
+generated_by:        ExtUtils::MakeMaker version 6.42
 distribution_type:   module
 requires:     
     Apache2::ModSSL:               0
@@ -17,7 +19,5 @@ requires:
     Tie::Cache::LRU:               0.21
     YAML:                          0
 meta-spec:
-    url:     http://module-build.sourceforge.net/META-spec-v1.2.html
-    version: 1.2
-author:
-    - Torsten Foertsch <torsten.foertsch@gmx.net>
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3

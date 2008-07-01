@@ -67,12 +67,12 @@ DESCRIPTION
      id  key    uri      blk ord action
       1  front  :PRE:    0   0   Cond: $HOSTNAME !~ /^(?:www\.)xyz\.(?:com|de)$/
       2  front  :PRE:    0   1   Redirect: 'http://xyz.com'.$URI, 301
-      3  front  :PRE:    1   0   Do: $ctx->{lang}='en'
+      3  front  :PRE:    1   0   Do: $CTX{lang}='en'
       4  front  :PRE:    1   1   Cond: $HOSTNAME =~ /de$/
-      5  front  :PRE:    1   2   Do: $ctx->{lang}='de'
-      6  front  /static  0   0   File: $DOCROOT.'/'.$ctx->{lang}.$MATCHED_PATH_INFO
-      7  front  /appl1   0   0   Proxy: 'http://backend/'.$ctx->{lang}.$URI
-      8  front  /appl2   0   0   Proxy: 'http://backend/'.$URI.'?l='.$ctx->{lang}
+      5  front  :PRE:    1   2   Do: $CTX{lang}='de'
+      6  front  /static  0   0   File: $DOCROOT.'/'.$CTX{lang}.$MATCHED_PATH_INFO
+      7  front  /appl1   0   0   Proxy: 'http://backend/'.$CTX{lang}.$URI
+      8  front  /appl2   0   0   Proxy: 'http://backend/'.$URI.'?l='.$CTX{lang}
       9  front  /        0   0   Config: ['AuthName "secret"'], ['AuthType Basic']
      10  back   :PRE:    0   0   Cond: $r->connection->remote_ip ne '127.0.0.1'
      11  back   :PRE:    0   1   Error: 403, 'Forbidden by Apache2::Translation(11)'
@@ -115,9 +115,9 @@ DESCRIPTION
     Then it cuts off the last part of the uri (/img.png), repeats the lookup
     and finds record 6. The "File" action sets "$r->filename" to
     "$DOCROOT/en/img.png". "Apache2::Translation" provides some convenience
-    variables. They are tied to members of the request record or to elements
-    of $ctx. $MATCHED_PATH_INFO contains the uri part cut off ("/img.png").
-    More on them below.
+    variables. They are tied to members of the request record.
+    $MATCHED_PATH_INFO contains the uri part cut off ("/img.png"). More on
+    them below.
 
     Now another round is started and the next uri part is cut off. Record 9
     matches. We see a "Config" action that sets "AuthName" and "AuthType".
@@ -171,10 +171,13 @@ DESCRIPTION
 
     "Apache2::Translation" provides some environment for code snippets in
     actions. They are compiled into perl functions. The compiled result is
-    cached. 2 variables, $r and $ctx, are provided plus a few convenience
-    variables. $r is the current "Apache2::RequestRec". $ctx points to a
-    hash that can be used to store arbitrary data. All keys beginning with a
-    space character in that hash are reserved for "Apache2::Translation".
+    cached. 2 variables, $r and %CTX, are provided plus a few convenience
+    variables. $r is the current "Apache2::RequestRec". %CTX is a hash that
+    can be used to store arbitrary data. This hash is not used by
+    Apache2::Translation itself. It can be used to pass data between
+    actions. But note, the hash is localized to the translation handler. So,
+    it cannot be used to pass data between different phases of the apache
+    request cycle. Use "$r->notes" or "$r->pnotes" for that.
 
     Do: perl_code
     Fixup: perl_code
@@ -530,54 +533,88 @@ DESCRIPTION
         Another application of "Last" is to return from a "Call" action.
 
   Convenience Variables and Data Structures
-    These variables are tied to elements of the current request ($r) or the
-    current context hash ($ctx). Reading them returns the current value,
-    setting changes it.
+    $URI
+        tied to "$r->uri"
 
-    $URI = "$r->uri"
-    $REAL_URI = "$r->unparsed_uri"
-    $METHOD = "$r->method"
-    $QUERY_STRING = "$r->args"
-    $FILENAME = "$r->filename"
-    $DOCROOT = "$r->document_root"
-    $HOSTNAME = "$r->hostname"
-    $PATH_INFO = "$r->path_info"
-    $REQUEST = "$r->the_request"
-    $HEADERS = "$r->headers_in"
-    $C = "$r->connection"
-    $CLIENTIP = "$r->connection->remote_ip"
-    $KEEPALIVE = "$r->connection->keepalive"
-        for more information see Apache2::RequestRec.
+    $REAL_URI
+        tied to "$r->unparsed_uri"
 
-    $MATCHED_URI = "$ctx->{' uri'}"
-    $MATCHED_PATH_INFO = "$ctx->{' pathinfo'}"
+    $METHOD
+        tied to "$r->method"
+
+    $QUERY_STRING
+        tied to "$r->args"
+
+    $FILENAME
+        tied to "$r->filename"
+
+    $DOCROOT
+        tied to "$r->document_root"
+
+    $HOSTNAME
+        tied to "$r->hostname"
+
+    $PATH_INFO
+        tied to "$r->path_info"
+
+    $REQUEST
+        tied to "$r->the_request"
+
+    $HEADERS
+        tied to "$r->headers_in"
+
+    $C  tied to "$r->connection"
+
+    $CLIENTIP
+        tied to "$r->connection->remote_ip"
+
+    $KEEPALIVE
+        tied to "$r->connection->keepalive"
+
+        For more information see Apache2::RequestRec.
+
+    $MATCHED_URI
+        tied to "$r->notes('Apache2::Translation::n::uri')"
+
+    $MATCHED_PATH_INFO
+        tied to "$r->notes('Apache2::Translation::n::pathinfo')"
+
         While in "PROC" state the incoming uri is split in 2 parts. The
         first part is matching the "uri" field of a database record. The
         second part is the rest. They can be accessed as $MATCHED_URI and
         $MATCHED_PATH_INFO.
 
-    $KEY = "$ctx->{' key'}"
+    $KEY
         the current key.
 
-    $STATE = "$ctx->{' state'}"
+        Tied to "$r->notes('Apache2::Translation::n::key')"
+
+    $STATE
         the current processing state.
 
-    $RC = "$ctx->{' rc'}"
-        Normally, "Apache2::Translation" checks at the end if "$r->filename"
+    $RC Normally, "Apache2::Translation" checks at the end if "$r->filename"
         is set. If so, it returns "Apache2::Const::OK" to its caller. If
         not, "Apache2::Const::DECLINED" is returned. The first alternative
         signals that the *Uri Translation Phase* is done and no further
-        handlers are called in this phase. The second alternative signals
-        that subsequent handlers are to be called. Thus, "mod_alias" or even
-        the core translation handler see the request.
+        handlers are to be called in this phase. The second alternative says
+        that subsequent handlers are to be called. Thus, "mod_alias" or the
+        core translation handler see the request.
 
         Setting $RC your action decide what is returned.
 
         $RC is also set by the "PerlHandler" action. Modperl generated
         responses are normally not associated with a single file on disk.
 
-    $DEBUG = "$r->notes->{'Apache2::Translation:: debug'}"
+    $DEBUG
+        tied to "$r->notes('Apache2::Translation::n::debug')"
+
         If set to 1 or 2 debugging output is sent to the "error_log".
+
+    %CTX
+        a hash to store arbitrary data. It can be used to pass data between
+        action blocks. But note, it is localized to the translation handler.
+        So, it cannot be used to pass data between different phases of the
+        apache request cycle. Use "$r->notes" or "$r->pnotes" for that.
 
 APACHE CONFIGURATION DIRECTIVES
     After installed and loaded by
@@ -644,20 +681,23 @@ WHICH PROVIDER TO CHOOSE
     Unless you want to implement your own provider you can choose from these
     3:
 
-    * DB
+    *   DB
+
         This is the provider implemented first. It uses a cache to store
         lookup results but at least one read (to fetch the version) is made
         for each request. Use it if you already have a DB engine at your
         site and if you don't mind the additional lookups.
 
-    * File
+    *   File
+
         This provider is very fast. It reads the complete config file into
         memory and refreshes it when modified. Hence come the greatest
         drawback. Each perl interpreter reads the file and needs all the
         memory to hold every rule. So with many rules and a high
         "MaxClients" directive it eats up much memory.
 
-    * BDB
+    *   BDB
+
         Choose this provider if you have many rules and a high "MaxClients"
         directive. Since most of the database is stored in shared memory by
         BerkeleyDB it is almost as fast as the "File" provider but its
@@ -733,7 +773,8 @@ SEE ALSO
     mod_perl: http://perl.apache.org
 
 TODO / WHISHLIST
-    * UI improvements
+    *   UI improvements
+
         Help system that provides a short explanation to the actions and
         perhaps convenience variables.
 
@@ -741,25 +782,31 @@ TODO / WHISHLIST
 
         More and better keyboard control.
 
-    * cleaning up the javascript code
+    *   cleaning up the javascript code
+
         my.js could use redesign.
 
-    * auto-Done mode
+    *   auto-Done mode
+
         In this mode the the translation handler finishes the current state
         after processing the first block list. Most of my block lists have a
         "Done" action at the end. This would also require an "Continue"
         action that to go to the next block list thus overruling the
         auto-Done.
 
-    * user identities + access rights
-    * domain specific mode
+    *   user identities + access rights
+
+    *   domain specific mode
+
         to delegate responsibility for certain domains to different user
         groups.
 
-    * some kind of *run-once* actions
+    *   some kind of *run-once* actions
+
         To initialize things.
 
-    * error_log hook
+    *   error_log hook
+
         Apache implements an "error_log" hook. If there were a perl
         interface to it one could direct error messages to separate files
         with "Apache2::Translation".

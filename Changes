@@ -1,5 +1,13 @@
 Revision history for Perl extension Apache2::Translation.
 
+0.24  Sat Apr  5 20:02:03 CEST 2008
+	- silenced a warning in BDB
+	- logger now server related instead of request related
+	- $ctx is gone. $STATE and $RC are now simple variables,
+	  $MATCHED_PATH_INFO, $MATCHED_URI, $KEY members of
+	  $r->notes.
+	- new %CTX hash.
+
 0.23  Wed Mar 26 17:56:03 CET 2008
 	- ServerRoot passed to provider as Root-parameter
 	- File and BDB provider accepts Root-Parameter

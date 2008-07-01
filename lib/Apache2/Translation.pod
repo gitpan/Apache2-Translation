@@ -66,12 +66,12 @@ Let's begin with an example. Given some database table:
  id  key    uri      blk ord action
   1  front  :PRE:    0   0   Cond: $HOSTNAME !~ /^(?:www\.)xyz\.(?:com|de)$/
   2  front  :PRE:    0   1   Redirect: 'http://xyz.com'.$URI, 301
-  3  front  :PRE:    1   0   Do: $ctx->{lang}='en'
+  3  front  :PRE:    1   0   Do: $CTX{lang}='en'
   4  front  :PRE:    1   1   Cond: $HOSTNAME =~ /de$/
-  5  front  :PRE:    1   2   Do: $ctx->{lang}='de'
-  6  front  /static  0   0   File: $DOCROOT.'/'.$ctx->{lang}.$MATCHED_PATH_INFO
-  7  front  /appl1   0   0   Proxy: 'http://backend/'.$ctx->{lang}.$URI
-  8  front  /appl2   0   0   Proxy: 'http://backend/'.$URI.'?l='.$ctx->{lang}
+  5  front  :PRE:    1   2   Do: $CTX{lang}='de'
+  6  front  /static  0   0   File: $DOCROOT.'/'.$CTX{lang}.$MATCHED_PATH_INFO
+  7  front  /appl1   0   0   Proxy: 'http://backend/'.$CTX{lang}.$URI
+  8  front  /appl2   0   0   Proxy: 'http://backend/'.$URI.'?l='.$CTX{lang}
   9  front  /        0   0   Config: ['AuthName "secret"'], ['AuthType Basic']
  10  back   :PRE:    0   0   Cond: $r->connection->remote_ip ne '127.0.0.1'
  11  back   :PRE:    0   1   Error: 403, 'Forbidden by Apache2::Translation(11)'
@@ -113,8 +113,8 @@ for a block with key=front, uri=/static/img.png. None is found.
 Then it cuts off the last part of the uri (/img.png), repeats the
 lookup and finds record 6. The C<File> action sets C<$r-E<gt>filename> to
 C<$DOCROOT/en/img.png>. C<Apache2::Translation> provides some convenience
-variables. They are tied to members of the request record or to
-elements of C<$ctx>. C<$MATCHED_PATH_INFO> contains the uri part cut off
+variables. They are tied to members of the request record.
+C<$MATCHED_PATH_INFO> contains the uri part cut off
 (C</img.png>). More on them below.
 
 Now another round is started and the next uri part is cut off. Record 9
@@ -171,12 +171,13 @@ some arguments. The key words are case insensitive.
 
 C<Apache2::Translation> provides some environment for code snippets in
 actions. They are compiled into perl functions. The compiled result is
-cached. 2 variables, C<$r> and C<$ctx>, are provided plus a few
+cached. 2 variables, C<$r> and C<%CTX>, are provided plus a few
 convenience variables. C<$r> is the current C<Apache2::RequestRec>.
-C<$ctx> points to a hash that can be used to store arbitrary data.
-All keys beginning with a space character in that hash are reserved for
-C<Apache2::Translation>.
-
+C<%CTX> is a hash that can be used to store arbitrary data. This hash
+is not used by Apache2::Translation itself. It can be used to pass data
+between actions. But note, the hash is localized to the translation handler.
+So, it cannot be used to pass data between different phases of the
+apache request cycle. Use C<$r-E<gt>notes> or C<$r-E<gt>pnotes> for that.
 
 
 =over 4
@@ -542,64 +543,92 @@ Another application of C<Last> is to return from a C<Call> action.
 
 =head2 B<Convenience Variables and Data Structures>
 
-These variables are tied to elements of the current request (C<$r>) or the
-current context hash (C<$ctx>). Reading them returns the current value,
-setting changes it.
-
 =over 4
 
-=item B<$URI> = C<$r-E<gt>uri>
+=item B<$URI>
 
-=item B<$REAL_URI> = C<$r-E<gt>unparsed_uri>
+tied to C<$r-E<gt>uri>
 
-=item B<$METHOD> = C<$r-E<gt>method>
+=item B<$REAL_URI>
 
-=item B<$QUERY_STRING> = C<$r-E<gt>args>
+tied to C<$r-E<gt>unparsed_uri>
 
-=item B<$FILENAME> = C<$r-E<gt>filename>
+=item B<$METHOD>
 
-=item B<$DOCROOT> = C<$r-E<gt>document_root>
+tied to C<$r-E<gt>method>
 
-=item B<$HOSTNAME> = C<$r-E<gt>hostname>
+=item B<$QUERY_STRING>
 
-=item B<$PATH_INFO> = C<$r-E<gt>path_info>
+tied to C<$r-E<gt>args>
 
-=item B<$REQUEST> = C<$r-E<gt>the_request>
+=item B<$FILENAME>
 
-=item B<$HEADERS> = C<$r-E<gt>headers_in>
+tied to C<$r-E<gt>filename>
 
-=item B<$C> = C<$r-E<gt>connection>
+=item B<$DOCROOT>
 
-=item B<$CLIENTIP> = C<$r-E<gt>connection-E<gt>remote_ip>
+tied to C<$r-E<gt>document_root>
 
-=item B<$KEEPALIVE> = C<$r-E<gt>connection-E<gt>keepalive>
+=item B<$HOSTNAME>
 
-for more information see L<Apache2::RequestRec>.
+tied to C<$r-E<gt>hostname>
 
-=item B<$MATCHED_URI> = C<$ctx-E<gt>{' uri'}>
+=item B<$PATH_INFO>
 
-=item B<$MATCHED_PATH_INFO> = C<$ctx-E<gt>{' pathinfo'}>
+tied to C<$r-E<gt>path_info>
+
+=item B<$REQUEST>
+
+tied to C<$r-E<gt>the_request>
+
+=item B<$HEADERS>
+
+tied to C<$r-E<gt>headers_in>
+
+=item B<$C>
+
+tied to C<$r-E<gt>connection>
+
+=item B<$CLIENTIP>
+
+tied to C<$r-E<gt>connection-E<gt>remote_ip>
+
+=item B<$KEEPALIVE>
+
+tied to C<$r-E<gt>connection-E<gt>keepalive>
+
+For more information see L<Apache2::RequestRec>.
+
+=item B<$MATCHED_URI>
+
+tied to C<$r-E<gt>notes('Apache2::Translation::n::uri')>
+
+=item B<$MATCHED_PATH_INFO>
+
+tied to C<$r-E<gt>notes('Apache2::Translation::n::pathinfo')>
 
 While in C<PROC> state the incoming uri is split in 2 parts. The first part
 is matching the C<uri> field of a database record. The second part is the
 rest. They can be accessed as C<$MATCHED_URI> and C<$MATCHED_PATH_INFO>.
 
-=item B<$KEY> = C<$ctx-E<gt>{' key'}>
+=item B<$KEY>
 
 the current key.
 
-=item B<$STATE> = C<$ctx-E<gt>{' state'}>
+Tied to C<$r-E<gt>notes('Apache2::Translation::n::key')>
+
+=item B<$STATE>
 
 the current processing state.
 
-=item B<$RC> = C<$ctx-E<gt>{' rc'}>
+=item B<$RC>
 
 Normally, C<Apache2::Translation> checks at the end if C<$r-E<gt>filename> is
 set. If so, it returns C<Apache2::Const::OK> to its caller. If not,
 C<Apache2::Const::DECLINED> is returned. The first alternative signals that
-the I<Uri Translation Phase> is done and no further handlers are called
-in this phase. The second alternative signals that subsequent handlers are
-to be called. Thus, C<mod_alias> or even the core translation handler
+the I<Uri Translation Phase> is done and no further handlers are to be called
+in this phase. The second alternative says that subsequent handlers are
+to be called. Thus, C<mod_alias> or the core translation handler
 see the request.
 
 Setting C<$RC> your action decide what is returned.
@@ -607,9 +636,18 @@ Setting C<$RC> your action decide what is returned.
 C<$RC> is also set by the C<PerlHandler> action. Modperl generated responses
 are normally not associated with a single file on disk.
 
-=item B<$DEBUG> = C<$r-E<gt>notes-E<gt>{'Apache2::Translation:: debug'}>
+=item B<$DEBUG>
+
+tied to C<$r-E<gt>notes('Apache2::Translation::n::debug')>
 
 If set to C<1> or C<2> debugging output is sent to the C<error_log>.
+
+=item B<%CTX>
+
+a hash to store arbitrary data. It can be used to pass data between action
+blocks. But note, it is localized to the translation handler. So, it cannot
+be used to pass data between different phases of the apache request cycle.
+Use C<$r-E<gt>notes> or C<$r-E<gt>pnotes> for that.
 
 =back
 

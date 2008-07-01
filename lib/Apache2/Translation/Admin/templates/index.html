@@ -29,7 +29,7 @@
 		</div>
 		<script type="text/javascript">
 			Event.observe( $('menucontainer'), 'click', function(e) {
-			                   this.toggle();
+								if( e.element().id=='menucontainer' ) this.toggle();
 			                 }.bindAsEventListener($('menu')) );
 		</script>
 		[%- END %]

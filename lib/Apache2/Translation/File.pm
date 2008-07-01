@@ -1,6 +1,6 @@
 package Apache2::Translation::File;
 
-use 5.8.8;
+use 5.008008;
 use strict;
 
 use Fcntl qw/:DEFAULT :flock/;
@@ -17,7 +17,7 @@ use warnings;
 no warnings qw(uninitialized);
 undef $^W;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 sub new {
   my $parent=shift;

@@ -8,7 +8,6 @@ use Apache::TestUtil;
 use Apache::TestUtil qw/t_write_shell_script t_write_perl_script/;
 use Apache::TestRequest qw{GET_BODY GET GET_RC};
 use DBI;
-use DBD::SQLite;
 use File::Basename 'dirname';
 use YAML ();
 

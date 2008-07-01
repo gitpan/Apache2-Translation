@@ -1,11 +1,11 @@
 package Apache2::Translation::_base;
 
-use 5.8.8;
+use 5.008008;
 use strict;
 use warnings;
 no warnings qw(uninitialized);
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use constant {
   BLOCK   => 0, 		# \
