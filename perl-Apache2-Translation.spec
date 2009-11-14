@@ -15,12 +15,18 @@
 Name:         perl-Apache2-Translation
 License:      Artistic License
 Group:        Development/Libraries/Perl
-Requires:     perl = %{perl_version} p_mod_perl >= 2.000002010 perl-Class-Member perl-Tie-Cache-LRU
-BuildRequires: perl = %{perl_version} p_mod_perl >= 2.000002010 perl-Class-Member perl-Tie-Cache-LRU
+Requires:     perl = %{perl_version} p_mod_perl >= 2.000002010
+Requires:     perl-Class-Member perl-Tie-Cache-LRU perl-MMapDB
+Requires:     perl-Apache2-ModSSL perl-BerkeleyDB perl-YAML perl-DBI
+Requires:     perl-DBD-SQLite perl-Template-Toolkit
+BuildRequires: perl = %{perl_version} p_mod_perl >= 2.000002010
+BuildRequires: perl-Class-Member perl-Tie-Cache-LRU perl-MMapDB
+BuildRequires: perl-Apache2-ModSSL perl-BerkeleyDB perl-YAML perl-DBI
+BuildRequires: perl-DBD-SQLite perl-Template-Toolkit
 Requires:     opt-modperl opt-apache
 Autoreqprov:  on
 Summary:      Apache2::Translation
-Version:      0.24
+Version:      0.30
 Release:      1
 Source:       Apache2-Translation-%{version}.tar.gz
 BuildRoot:    %{_tmppath}/%{name}-%{version}-build

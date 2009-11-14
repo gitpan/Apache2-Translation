@@ -31,9 +31,9 @@ use Apache2::Const -compile=>qw{:common :http
 				ITERATE TAKE1 RAW_ARGS RSRC_CONF
 				LOG_DEBUG};
 
-our $VERSION = '0.24';
+our $VERSION = '0.30';
 
-our ($cf,$r,$skip_uri_cut,$m2s,$need_fixup,$need_m2s, %CTX);
+our ($cf,$r,$skip_uri_cut,$m2s,$need_fixup,$need_m2s, %CTX, $ctx);
 
 our ($URI, $REAL_URI, $METHOD, $QUERY_STRING, $FILENAME, $DOCROOT,
      $HOSTNAME, $PATH_INFO, $HEADERS, $REQUEST,
@@ -185,11 +185,12 @@ Apache2::Module::add(__PACKAGE__, \@directives);
 sub postconfig {
   my($conf_pool, $log_pool, $temp_pool, $s) = @_;
 
+  my $base=Apache2::Module::get_config( __PACKAGE__, $s );
   for(; $s; $s=$s->next ) {
     my $cfg=Apache2::Module::get_config( __PACKAGE__, $s );
     if( $cfg ) {
-      if( ref($cfg->{provider_param}) eq 'ARRAY' and
-	  !defined $cfg->{provider} ) {
+      next if defined $cfg->{provider};
+      if( ref($cfg->{provider_param}) eq 'ARRAY' ) {
 	my $param=$cfg->{provider_param};
 	my $class=$param->[0];
 	eval "use Apache2::Translation::$class;";
@@ -202,6 +203,12 @@ sub postconfig {
 	}
 	$cfg->{provider}=$class->new( Root=>Apache2::ServerUtil::server_root,
 				      @{$param}[1..$#{$param}] );
+      } elsif( $cfg->{provider_param} eq 'inherit' ) {
+	if( defined $base->{provider} ) {
+	  $cfg->{provider}=$base->{provider};
+	} else {
+	  die "ERROR: Cannot inherit provider from base server.";
+	}
       }
     }
   }
@@ -221,7 +228,13 @@ sub TranslationProvider {
   my($I, $parms, @args)=@_;
   $I=Apache2::Module::get_config(__PACKAGE__, $parms->server);
   unless( $I->{provider_param} ) {
-    $I->{provider_param}=[shift @args];
+    if( @args==1 and $args[0] eq 'inherit' ) {
+      $I->{provider_param}=$args[0];
+      setPostConfigHandler;
+      return;
+    } else {
+      $I->{provider_param}=[shift @args];
+    }
   }
   push @{$I->{provider_param}}, map {
     my @x=split /=/, $_, 2;
@@ -257,6 +270,7 @@ sub TranslationKey {
   my($I, $parms, $arg)=@_;
   $I=Apache2::Module::get_config(__PACKAGE__, $parms->server);
   $I->{key}=$arg;
+  $I->{key_def}=1;
 }
 
 sub TranslationEvalCache {
@@ -277,12 +291,33 @@ sub TranslationEvalCache {
       tie %{$I->{eval_cache}}, 'Tie::Cache::LRU', $arg;
     }
   }
+  $I->{eval_cache_def}=1;
 }
 
-# There is no need for a special SERVER_MERGE. By default a VirtualHost
-# uses only its very own configuration. Nothing is inherited from the
-# base server.
-#sub SERVER_MERGE {}
+sub SERVER_MERGE {
+  my ($base, $add)=@_;
+  my %merged;
+
+  if( exists $add->{provider_param} ) {
+    $merged{provider_param}=$add->{provider_param};
+  } elsif( exists $base->{provider_param} ) {
+    $merged{provider_param}='inherit';
+  }
+
+  if( $add->{eval_cache_def} ) {
+    $merged{eval_cache}=$add->{eval_cache};
+  } else {
+    $merged{eval_cache}=$base->{eval_cache};
+  }
+
+  if( $add->{key_def} ) {
+    $merged{key}=$add->{key};
+  } else {
+    $merged{key}=$base->{key};
+  }
+
+  return bless \%merged, ref($base);
+}
 
 sub SERVER_CREATE {
   my ($class, $parms)=@_;
@@ -844,7 +879,8 @@ my @state_machine=
   );
 
 sub handler {
-  local ($cf,$r,$RC,$STATE,$m2s,$need_fixup,$need_m2s,%CTX);
+  local ($cf,$r,$RC,$STATE,$m2s,$need_fixup,$need_m2s,%CTX, $ctx);
+  $ctx=\%CTX;
   $r=$_[0];
   local $SIG{__WARN__}=\&logger;
 

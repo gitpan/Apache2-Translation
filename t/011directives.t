@@ -100,7 +100,8 @@ $data=<<'EOD';
 
 10	k	/alias	0	0	Uri: '/ALIAS'.$MATCHED_PATH_INFO
 
-11	k	/file	0	0	File: $r->document_root.$MATCHED_PATH_INFO
+11	k	/file	0	0	Do: $CTX{R}=$r->document_root
+110	k	/file	0	1	File: $ctx->{R}.$MATCHED_PATH_INFO
 
 12	k	/cgi	0	0	Cgiscript
 13	k	/cgi	0	1	File: $r->document_root.$MATCHED_PATH_INFO
@@ -179,7 +180,7 @@ SKIP: {
 ok t_cmp GET_BODY( '/file/ok.html' ), 'OK', n '/file/ok.html';
 
 SKIP: {
-  skip "Need cgi module", 1 unless( need_module( 'cgi' ) or need_module( 'cgid' ) );
+  skip "Need cgi module", 2 unless( need_module( 'cgi' ) or need_module( 'cgid' ) );
   ok t_cmp GET_BODY( '/cgi/script.pl' ), qr!^CGI/!, n '/cgi/script.pl';
   ok t_cmp GET_BODY( '/cgi4/script.pl' ), qr!^CGI/!, n '/cgi4/script.pl';
 }
@@ -207,7 +208,7 @@ SKIP: {
 }
 
 SKIP: {
-  skip "Need cgi module", 1 unless( need_module( 'cgi' ) or need_module( 'cgid' ) );
+  skip "Need cgi module", 2 unless( need_module( 'cgi' ) or need_module( 'cgid' ) );
   t_write_file( $documentroot.'/.htaccess', "Options ExecCGI\n" );
   t_client_log_error_is_expected();
   ok t_cmp GET_RC( '/cgi2/script.pl' ), 500, n '/cgi2/script.pl';

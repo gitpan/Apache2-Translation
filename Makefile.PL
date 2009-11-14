@@ -22,6 +22,7 @@ ModPerl::MM::WriteMakefile(
   PREREQ_PM         => {
 			mod_perl2=>0,
 			'DBI'=>0,
+			'DBD::SQLite'=>0,
 			'BerkeleyDB'=>0.31,
 			'Class::Member'=>1.3,
 			'Tie::Cache::LRU'=>0.21,
@@ -30,6 +31,7 @@ ModPerl::MM::WriteMakefile(
 			'Apache2::ModSSL'=>0,
 			'Apache2::Request'=>0,
 			'YAML'=>0,
+			'MMapDB'=>0,
 		       },
   ABSTRACT_FROM     => 'lib/Apache2/Translation.pod',
   AUTHOR            => 'Torsten Foertsch <torsten.foertsch@gmx.net>',

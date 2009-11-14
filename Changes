@@ -1,5 +1,20 @@
 Revision history for Perl extension Apache2::Translation.
 
+0.30  Sat Nov 14 16:17:55 CET 2009
+	- SERVER_MERGE
+
+0.28  Mon Aug 24 19:18:53 CEST 2009
+        - MMapDB provider documentation
+
+0.27  Sat Jul  4 16:38:41 CEST 2009
+	- MMapDB provider
+
+0.26  Tue Sep 30 14:50:31 CEST 2008
+	- $ctx revived as pointer to \%CTX for compatibility
+
+0.25  Sat Aug  2 17:08:13 CEST 2008
+	- small bugfixes in the test suite
+
 0.24  Sat Apr  5 20:02:03 CEST 2008
 	- silenced a warning in BDB
 	- logger now server related instead of request related

@@ -662,6 +662,9 @@ APACHE CONFIGURATION DIRECTIVES
 
          $Apache2::Translation::class->new( NAME1=>VALUE1, NAME2=>VALUE2, ... );
 
+        If "class" is literally "inherit" the provider of the base server is
+        used. This is obviously valid only in a VHost configuration.
+
     TranslationKey initial-key
         This sets the initial value for the key. Default is the string
         "default".
@@ -676,6 +679,10 @@ APACHE CONFIGURATION DIRECTIVES
 
         If set the cache is tied to Tie::Cache::LRU. The number of cached
         code snippets will then be limited by "number".
+
+  VHost merging
+    If in a VHost configuration any of the above directives is ommitted it
+    is inherited from the base server.
 
 WHICH PROVIDER TO CHOOSE
     Unless you want to implement your own provider you can choose from these

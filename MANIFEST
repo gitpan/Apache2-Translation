@@ -8,6 +8,7 @@ t/001provider-DB.t
 t/002provider-File.t
 t/003provider-BDB.t
 t/004stress-BDB.t
+t/005provider-MMapDB.t
 t/010states.t
 t/011directives.t
 t/012recursion.t
@@ -23,10 +24,13 @@ lib/Apache2/Translation/_base.pm
 lib/Apache2/Translation/_base.pod
 lib/Apache2/Translation/DB.pm
 lib/Apache2/Translation/DB.pod
+lib/Apache2/Translation/MMap.pm
 lib/Apache2/Translation/File.pm
 lib/Apache2/Translation/File.pod
 lib/Apache2/Translation/BDB.pm
 lib/Apache2/Translation/BDB.pod
+lib/Apache2/Translation/MMapDB.pm
+lib/Apache2/Translation/MMapDB.pod
 lib/Apache2/Translation/Config.pm
 lib/Apache2/Translation/Config.pod
 lib/Apache2/Translation/Admin.pm

@@ -702,6 +702,9 @@ parameters:
 
  $Apache2::Translation::class->new( NAME1=>VALUE1, NAME2=>VALUE2, ... );
 
+If C<class> is literally C<inherit> the provider of the base server is used.
+This is obviously valid only in a VHost configuration.
+
 =item B<TranslationKey initial-key>
 
 This sets the initial value for the key. Default is the string C<default>.
@@ -718,6 +721,11 @@ If set the cache is tied to L<Tie::Cache::LRU>. The number of cached code
 snippets will then be limited by C<number>.
 
 =back
+
+=head2 VHost merging
+
+If in a VHost configuration any of the above directives is ommitted it is
+inherited from the base server.
 
 =head1 WHICH PROVIDER TO CHOOSE
 

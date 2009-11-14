@@ -1,23 +1,33 @@
 --- #YAML:1.0
-name:                Apache2-Translation
-version:             0.24
-abstract:            Configuring Apache dynamically
-license:             ~
-author:              
+name:               Apache2-Translation
+version:            0.30
+abstract:           Configuring Apache dynamically
+author:
     - Torsten Foertsch <torsten.foertsch@gmx.net>
-generated_by:        ExtUtils::MakeMaker version 6.42
-distribution_type:   module
-requires:     
-    Apache2::ModSSL:               0
-    Apache2::Request:              0
-    BerkeleyDB:                    0.31
-    Class::Member:                 1.3
-    DBI:                           0
-    mod_perl2:                     0
-    Template:                      2.15
-    Test::Deep:                    0
-    Tie::Cache::LRU:               0.21
-    YAML:                          0
+license:            unknown
+distribution_type:  module
+configure_requires:
+    ExtUtils::MakeMaker:  0
+build_requires:
+    ExtUtils::MakeMaker:  0
+requires:
+    Apache2::ModSSL:   0
+    Apache2::Request:  0
+    BerkeleyDB:        0.31
+    Class::Member:     1.3
+    DBD::SQLite:       0
+    DBI:               0
+    MMapDB:            0
+    mod_perl2:         0
+    Template:          2.15
+    Test::Deep:        0
+    Tie::Cache::LRU:   0.21
+    YAML:              0
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.52
 meta-spec:
-    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
-    version: 1.3
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4
