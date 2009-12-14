@@ -18,7 +18,7 @@ use warnings;
 no warnings qw(uninitialized);
 undef $^W;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 # _db1 maps id=>[block, order, action, id, key, uri]
 # _db2 is a secondary index of (key,uri). It is associated with _db1
@@ -320,21 +320,33 @@ sub clear {
 }
 
 sub iterator {
-  my ($k, $v, $c, $rc);
-  $c=$_[0]->_db2->db_cursor;
+  my $c=$_[0]->_db2->db_cursor;
+  my @blocklist;
 
   return sub {
-    if( ($rc=$c->c_get($k, $v, DB_NEXT))==0 ) {
-      my $new=[];
-      @{$new}[nBLOCK,nORDER,nACTION,nKEY,nURI,nNOTE,nID]=
-	@{decode($v)}[BLOCK,ORDER,ACTION,KEY,URI,NOTE,ID];
-      return $new;
-    } elsif( $rc==DB_LOCK_DEADLOCK ) {
-      die "__RETRY__\n";
-    } else {
-      undef $c;
-      return;
+    unless( @blocklist ) {
+      my ($key, $k, $v, $rc);
+      if( ($rc=$c->c_get($key, $v, DB_NEXT))==0 ) {
+	my $new=[];
+	@{$new}[nBLOCK,nORDER,nACTION,nKEY,nURI,nNOTE,nID]=
+	  @{decode($v)}[BLOCK,ORDER,ACTION,KEY,URI,NOTE,ID];
+	push @blocklist, $new;
+	while( ($rc=$c->c_get($k=$key, $v, DB_NEXT_DUP))==0 ) {
+	  $new=[];
+	  @{$new}[nBLOCK,nORDER,nACTION,nKEY,nURI,nNOTE,nID]=
+	    @{decode($v)}[BLOCK,ORDER,ACTION,KEY,URI,NOTE,ID];
+	  push @blocklist, $new;
+	}
+	@blocklist=sort {$a->[nBLOCK]<=>$b->[nBLOCK] or
+			 $a->[nORDER]<=>$b->[nORDER]} @blocklist;
+      } elsif( $rc==DB_LOCK_DEADLOCK ) {
+	die "__RETRY__\n";
+      } else {
+	undef $c;
+	return;
+      }
     }
+    return shift @blocklist;
   };
 }
 

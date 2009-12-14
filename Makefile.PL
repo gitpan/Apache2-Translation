@@ -33,6 +33,7 @@ ModPerl::MM::WriteMakefile(
 			'YAML'=>0,
 			'MMapDB'=>0,
 		       },
+  EXE_FILES         => [qw!script/cpprov script/diffprov!],
   ABSTRACT_FROM     => 'lib/Apache2/Translation.pod',
   AUTHOR            => 'Torsten Foertsch <torsten.foertsch@gmx.net>',
   dist              => {

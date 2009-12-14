@@ -22,13 +22,12 @@ use Apache2::Const -compile=>qw{:common :http};
 use Apache2::Request;
 
 use Template;
-use YAML ();
 use Class::Member::HASH -CLASS_MEMBERS=>qw/static types types_re templates
 					   tt provider provider_url
 					   provider_spec r title/;
 our @CLASS_MEMBERS;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 our $STATIC;
 our $DEFAULTPROVIDERHOST='http://localhost';
 
@@ -73,12 +72,15 @@ sub _fetch_provider_LWP {
   my ($I)=@_;
 
   require LWP::UserAgent;
-  require YAML;
 
   my $ua=LWP::UserAgent->new;
   my $resp=$ua->get($I->provider_url);
   if( $resp->is_success ) {
-    my $x=YAML::Load($resp->content);
+    my $x;
+    unless( eval 'require JSON::XS' and
+	    $x=eval {JSON::XS::decode_json($resp->content)} ) {
+      eval 'require YAML' and $x=eval {YAML::Load($resp->content)};
+    }
     if( ref($x) eq 'HASH' and exists $x->{TranslationProvider} ) {
       $I->provider_spec=$x->{TranslationProvider};
       $I->_config_provider_SPEC;

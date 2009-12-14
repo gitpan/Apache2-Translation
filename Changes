@@ -1,5 +1,16 @@
 Revision history for Perl extension Apache2::Translation.
 
+0.32  Fri Nov 27 12:51:47 CET 2009
+	- pass options to diff() and sdiff() provider methods as KEY,VALUE
+	  pairs
+	- "notes" and "numbers" options to diff() and sdiff()
+	- diffprov script
+
+0.31  Wed Nov 25 14:04:44 CET 2009
+	- do not require YAML anymore in Makefile.PL
+	- diff() and sdiff() provider methods implemented in _base.pm
+	- cpprov script
+
 0.30  Sat Nov 14 16:17:55 CET 2009
 	- SERVER_MERGE
 

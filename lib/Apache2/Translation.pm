@@ -31,7 +31,7 @@ use Apache2::Const -compile=>qw{:common :http
 				ITERATE TAKE1 RAW_ARGS RSRC_CONF
 				LOG_DEBUG};
 
-our $VERSION = '0.30';
+our $VERSION = '0.32';
 
 our ($cf,$r,$skip_uri_cut,$m2s,$need_fixup,$need_m2s, %CTX, $ctx);
 

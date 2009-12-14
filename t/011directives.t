@@ -9,9 +9,8 @@ use Apache::TestUtil qw/t_write_shell_script t_write_perl_script/;
 use Apache::TestRequest qw{GET_BODY GET GET_RC};
 use DBI;
 use File::Basename 'dirname';
-use YAML ();
 
-plan tests=>35;
+plan tests=>36;
 #plan 'no_plan';
 
 {
@@ -271,8 +270,52 @@ SKIP: {
 }
 
 SKIP: {
-  skip "Need YAML to test Apache2::Translation::Config", 1 unless( need_module( 'YAML' ) );
-  ok( t_cmp YAML::Load(GET_BODY( '/econf' )),
+  skip "Need JSON::XS or YAML to test Apache2::Translation::Config", 1
+    unless( need_module( 'JSON::XS' ) or need_module( 'YAML' ) );
+  my $text=GET_BODY( '/econf' );
+
+  my $x;
+  unless( eval 'require JSON::XS' and
+          $x=eval {JSON::XS::decode_json($text)} ) {
+    eval 'require YAML' and $x=eval {YAML::Load($text)};
+  }
+
+  ok( t_cmp $x,
+      {
+       TranslationProvider  => [
+				'DB',
+				database  => $db,
+				user      => $user,
+				password  => $pw,
+				table     => 'trans',
+				id        => 'id',
+				key       => 'xkey',
+				uri       => 'xuri',
+				block     => 'xblock',
+				order     => 'xorder',
+				action    => 'xaction',
+				cachetbl  => 'cache',
+				cachecol  => 'v',
+				singleton => '1'
+			       ],
+       TranslationKey       => 'default',
+       TranslationEvalCache => 'unlimited'
+      },
+      n 'Apache2::Translation::Config' );
+}
+
+SKIP: {
+  skip "Need YAML to test Apache2::Translation::Config in YAML mode", 1
+    unless( need_module( 'YAML' ) );
+  my $text=GET_BODY( '/econf?Yaml' );
+
+  my $x;
+  unless( eval 'require JSON::XS' and
+          $x=eval {JSON::XS::decode_json($text)} ) {
+    eval 'require YAML' and $x=eval {YAML::Load($text)};
+  }
+
+  ok( t_cmp $x,
       {
        TranslationProvider  => [
 				'DB',

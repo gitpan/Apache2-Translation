@@ -130,6 +130,11 @@ But these use a one-level key (C<< $root->{'qw/my trans db/'} >>):
 
   $provider=Apache2::Translation::MMapDB->new(BaseKey=>'qw/my trans db/');
 
+=head3 nolock
+
+If set to true no lockfile is used to serialize access to the underlying
+L<MMapDB> object.
+
 =head1 SEE ALSO
 
 =over 4

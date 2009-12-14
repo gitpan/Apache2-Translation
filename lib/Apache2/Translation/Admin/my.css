@@ -224,6 +224,7 @@ div#progress {
   border: ridge #996 2px;
   background-color: #996;
   overflow: hidden;
+  z-index: 101;
 }
 
 div#progress img {

@@ -120,7 +120,11 @@ C<commit> wrapper. Returns boolean.
 =item B<iterator>
 
 returns a function reference that can be used the following way to step
-all entries currently hold by the provider.
+all entries currently hold by the provider. Lists of blocks are traversed
+in ascending alphabetical order with C<KEY> as the major ordering element and
+C<URI> the minor. Within a block list elements are traversed in ascending
+numerical order with C<BLOCK> as the major ordering element and C<ORDER> the
+minor.
 
  my $iterator=$other->iterator;
  while( my $el=$iterator->() ) {
@@ -134,10 +138,37 @@ itself and can be used.
 
 =over 4
 
-=item B<append( $other_provider )>
+=item B<append( $other_provider, %options )>
 
 Expects a provider object that implements the C<iterator> function. C<append>
 then C<insert()>s all elements of C<$other_provider>.
+
+If C<drop_notes> is passed as a true value in C<%options> then notes are not
+copied.
+
+=item B<diff( $other_provider, %options )>
+
+If L<Algorithm::Diff> and L<JSON::XS> are installed this method computes
+a difference between 2 providers. If C<key> or C<uri> are given in
+C<%options> they act as filters.
+The difference is calculated only for elements that pass that filter.
+The value of C<key> or C<uri> can either be a string in which case the
+matching operation is a simple C<eq> or a C<Regexp> object (C<qr/.../>).
+
+If C<notes> is specified in C<%options> as a false value differences
+in notes only are disregarded.
+
+If C<numbers> is specified in C<%options> as a false value differences
+in C<BLOCK> and C<ORDER> numbers only are disregarded.
+
+For more information about the output format see C<diff()> in
+L<Algorithm::Diff>.
+
+=item B<sdiff( $other_provider, %options )>
+
+Does the same as the C<diff> method but differs in the output format.
+
+For more information see C<sdiff()> in L<Algorithm::Diff>.
 
 =item B<dump( $format, $filehandle )>
 

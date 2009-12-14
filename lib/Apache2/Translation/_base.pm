@@ -5,7 +5,7 @@ use strict;
 use warnings;
 no warnings qw(uninitialized);
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use constant {
   BLOCK   => 0, 		# \
@@ -58,11 +58,13 @@ sub import {
 }
 
 sub append {
-  my ($I, $other)=@_;
+  my ($I, $other, %options)=@_;
 
+  my $drop=$options{drop_notes};
   my $rc=0;
   my $iterator=$other->iterator;
   while( my $el=$iterator->() ) {
+    $#{$el}=nACTION if( $drop ); # drop NOTE and ID
     $rc+=$I->insert($el);
   }
   return $rc;
@@ -111,6 +113,111 @@ sub dump {
     $x=~s/%{(.*?)(KEY|URI|BLOCK|ORDER|ACTION|NOTE|ID)}/_expand($el,$1,$2)/gse;
     print $fh $x;
   }
+}
+
+{
+  my $_init;
+  my $init=sub {
+    my ($I, $other, %o)=@_;
+    unless($_init) {
+      # This is expected to be seldom used. So, don't rely on the
+      # existence of these modules.
+      die "Please install JSON::XS" unless eval "require JSON::XS";
+      die "Please install Algorithm::Diff"
+	unless eval "require Algorithm::Diff";
+      $_init=1;
+    }
+
+    my (@my_stuff, @other_stuff);
+    if( exists $o{key} and exists $o{uri} ) {
+      my ($key, $uri)=@o{qw/key uri/};
+      for( my $it=$I->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @my_stuff, $el if( (ref($key)
+				 ? $el->[nKEY] =~ $key
+				 : $el->[nKEY] eq $key) and
+				(ref($uri)
+				 ? $el->[nURI] =~ $uri
+				 : $el->[nURI] eq $uri) );
+      }
+      for( my $it=$other->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @other_stuff, $el if( (ref($key)
+				    ? $el->[nKEY] =~ $key
+				    : $el->[nKEY] eq $key) and
+				   (ref($uri)
+				    ? $el->[nURI] =~ $uri
+				    : $el->[nURI] eq $uri) );
+      }
+    } elsif( exists $o{key} ) {
+      my $key=$o{key};
+      for( my $it=$I->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @my_stuff, $el if( ref($key)
+				? $el->[nKEY] =~ $key
+				: $el->[nKEY] eq $key );
+      }
+      for( my $it=$other->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @other_stuff, $el if( ref($key)
+				   ? $el->[nKEY] =~ $key
+				   : $el->[nKEY] eq $key );
+      }
+    } elsif( exists $o{uri} ) {
+      my $uri=$o{uri};
+      for( my $it=$I->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @my_stuff, $el if( ref($uri)
+				? $el->[nURI] =~ $uri
+				: $el->[nURI] eq $uri );
+      }
+      for( my $it=$other->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @other_stuff, $el if( ref($uri)
+				   ? $el->[nURI] =~ $uri
+				   : $el->[nURI] eq $uri );
+      }
+    } else {
+      for( my $it=$I->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @my_stuff, $el;
+      }
+      for( my $it=$other->iterator; my $el=$it->(); ) {
+	$#{$el}=nNOTE;		# drop ID
+	$el->[nBLOCK]+=0;	# convert to numbers because JSON::XS
+	$el->[nORDER]+=0;	# shows 0 as 0 but '0' as "0"
+	push @other_stuff, $el;
+      }
+    }
+
+    my $serializer=\&JSON::XS::encode_json;
+    if( exists $o{notes} and !$o{notes} ) {
+      my $f=$serializer;
+      $serializer=sub { my @el=@{$_[0]}; $el[nNOTE]=''; $f->(\@el) };
+    }
+    if( exists $o{numbers} and !$o{numbers} ) {
+      my $f=$serializer;
+      $serializer=sub { my @el=@{$_[0]}; @el[nBLOCK,nORDER]=(0,0); $f->(\@el) };
+    }
+
+    return (\@my_stuff, \@other_stuff, $serializer);
+  };
+  sub diff  {Algorithm::Diff::diff($init->(@_));}
+  sub sdiff {Algorithm::Diff::sdiff($init->(@_));}
 }
 
 sub DESTROY {}

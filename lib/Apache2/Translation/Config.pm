@@ -10,7 +10,8 @@ use Apache2::RequestIO;
 use Apache2::Module;
 use attributes;
 use Apache2::Const -compile=>qw{OK};
-use YAML ();
+
+our $VERSION='0.01';
 
 sub handler {
   my $r=shift;
@@ -25,11 +26,25 @@ sub handler {
   } else {
     $cache='unlimited';
   }
-  $r->print( YAML::Dump( {
-			  TranslationKey=>$cf->{key},
-			  TranslationProvider=>$cf->{provider_param},
-			  TranslationEvalCache=>$cache,
-			 } ) );
+
+  my $args=lc $r->args;
+  if( $args ne 'yaml' and eval 'require JSON::XS' ) {
+    $r->print( JSON::XS::encode_json
+	       ( {
+		  TranslationKey=>$cf->{key},
+		  TranslationProvider=>$cf->{provider_param},
+		  TranslationEvalCache=>$cache,
+		 } ) );
+  } elsif( eval 'require YAML' ) {
+    $r->print( YAML::Dump
+	       ( {
+		  TranslationKey=>$cf->{key},
+		  TranslationProvider=>$cf->{provider_param},
+		  TranslationEvalCache=>$cache,
+		 } ) );
+  } else {
+    die "Please install JSON::XS or YAML";
+  }
 
   return Apache2::Const::OK;
 }

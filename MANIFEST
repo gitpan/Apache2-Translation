@@ -24,7 +24,6 @@ lib/Apache2/Translation/_base.pm
 lib/Apache2/Translation/_base.pod
 lib/Apache2/Translation/DB.pm
 lib/Apache2/Translation/DB.pod
-lib/Apache2/Translation/MMap.pm
 lib/Apache2/Translation/File.pm
 lib/Apache2/Translation/File.pod
 lib/Apache2/Translation/BDB.pm
@@ -61,5 +60,7 @@ lib/Apache2/Translation/Admin/tdc2-resize.gif
 lib/Apache2/Translation/Admin/tdc3-resize.gif
 lib/Apache2/Translation/Admin/templates/index.html
 lib/Apache2/Translation/Admin/templates/fetch.html
+script/cpprov
+script/diffprov
 perl-Apache2-Translation.spec
 META.yml                                 Module meta-data (added by MakeMaker)

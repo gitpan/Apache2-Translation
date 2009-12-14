@@ -26,7 +26,7 @@ BuildRequires: perl-DBD-SQLite perl-Template-Toolkit
 Requires:     opt-modperl opt-apache
 Autoreqprov:  on
 Summary:      Apache2::Translation
-Version:      0.30
+Version:      0.32
 Release:      1
 Source:       Apache2-Translation-%{version}.tar.gz
 BuildRoot:    %{_tmppath}/%{name}-%{version}-build
@@ -84,6 +84,8 @@ find $RPM_BUILD_ROOT%{_mandir}/man* -type f -print0 |
 %files
 %defattr(-, root, root)
 %layout_base/%{perl_v}
+%perl_sitebin/cpprov
+%perl_sitebin/diffprov
 %doc %{_mandir}
 %doc /var/adm/perl-modules/%{name}
 %doc MANIFEST README

@@ -76,7 +76,7 @@ sub new {
   } else {
     $I->_db=MMapDB->new(filename=>$I->filename,
 			readonly=>$I->readonly,
-			lockfile=>$I->filename.'.lock');
+			($o{nolock} ? () : (lockfile=>$I->filename.'.lock')));
   }
   $DB=$I->_db;
 

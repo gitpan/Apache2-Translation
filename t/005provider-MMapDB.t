@@ -11,8 +11,8 @@ use File::Basename 'dirname';
 use File::Path ();
 use Data::Dumper; $Data::Dumper::Useqq=1;
 
-#plan tests=>19;
-plan 'no_plan';
+plan tests=>23;
+#plan 'no_plan';
 
 my $data=<<'EOD';
 #xkey	xuri		xblock	xorder	xaction	xnote
@@ -87,6 +87,8 @@ $fo->stop;
 
 $o->start;
 $o->begin;
+eval {$o->clear};
+cmp_deeply $@, '', n 'newly created db successfully cleared';
 $fo->start;
 cmp_deeply $o->append($fo), 6, n 'append';
 $fo->stop;
@@ -132,6 +134,37 @@ $o->update([qw/k1 u1 1 0/, $o->_db->main_index->{trans}->{db}
 	   [qw/k1 u1 1 3/, "updated\naction", "updated\nnote"]);
 $o->commit;
 
+SKIP: {
+  eval 'use JSON::XS; use Algorithm::Diff';
+  $@ and skip 'JSON::XS or Algorithm::Diff not installed', 4;
+
+  cmp_deeply [$ro->diff($o)],
+             [
+              [["-", 2,
+                ["k1", "u1", 1, 0, "inserted_action", "inserted_note"]]],
+              [["+", 3,
+                ["k1", "u1", 1, 3, "updated\naction", "updated\nnote"]]],
+             ],
+             n 'diff after update';
+
+  cmp_deeply [$ro->diff($o, qw/key k1 uri u1/)],
+             [
+              [["-", 2,
+                ["k1", "u1", 1, 0, "inserted_action", "inserted_note"]]],
+              [["+", 3,
+                ["k1", "u1", 1, 3, "updated\naction", "updated\nnote"]]],
+             ],
+             n 'diff2 after update';
+
+  cmp_deeply [$ro->diff($o, qw/key k1 uri u2/)],
+             [],
+             n 'diff3 after update';
+
+  cmp_deeply [$ro->diff($o, qw/key hugo uri erna/)],
+             [],
+             n 'diff4 after update';
+}
+
 $ro->start;
 cmp_deeply [$ro->fetch('k1', 'u1', 1)],
            [[0, 0, 'a', re(qr/^\d+$/), 'note1'],
@@ -174,6 +207,11 @@ $ro->start;
 cmp_deeply [$ro->fetch('k1', 'u1', 1)],
            [],
            n 'cleared';
+
+$o->begin;
+eval {$o->clear};
+cmp_deeply $@, '', n 'clear an already cleared db'.($@?": $@":'');
+$o->commit;
 
 $o->stop;
 

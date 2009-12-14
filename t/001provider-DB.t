@@ -154,12 +154,12 @@ cmp_deeply [$o->fetch('k2', 'u1', 1)],
            [['1', '2', 'inserted_action', '10', 'a_note']],
            n 'fetch with notes';
 
-my @l=(['k1', 'u1', '0', '1', 'b', undef, 1],
-       ['k1', 'u1', '1', '2', 'new action', 'note on 2', 2],
-       ['k1', 'u2', '0', '0', 'd', undef, 3],
-       ['k1', 'u2', '1', '0', 'e', undef, 4],
-       ['k1', 'u2', '1', '1', 'f', undef, 5],
-       ['k2', 'u1', '1', '2', 'inserted_action', 'a_note', 10]);
+my @l=(['k1', 'u1', 0, 1, 'b', undef, 1],
+       ['k1', 'u1', 1, 2, 'new action', 'note on 2', 2],
+       ['k1', 'u2', 0, 0, 'd', undef, 3],
+       ['k1', 'u2', 1, 0, 'e', undef, 4],
+       ['k1', 'u2', 1, 1, 'f', undef, 5],
+       ['k2', 'u1', 1, 2, 'inserted_action', 'a_note', 10]);
 my $i=0;
 for( my $iterator=$o->iterator; my $el=$iterator->(); $i++ ) {
   cmp_deeply($el, $l[$i], n "iterator $i");
