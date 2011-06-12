@@ -1,5 +1,14 @@
 Revision history for Perl extension Apache2::Translation.
 
+0.34  Sat May 14 17:36:20 CEST 2011
+	- AT::BDB: typo corrected
+        - t/003provider-BDB.t: $prov->timestamp($val) was called without
+          a transaction (failed with BerkeleyDB 4.3)
+
+0.33  Fri May  6 17:08:26 CEST 2011
+	- :withtestmore ==> -withtestmore, see Apache::Test
+        - test bug: success depended on the test order
+
 0.32  Fri Nov 27 12:51:47 CET 2009
 	- pass options to diff() and sdiff() provider methods as KEY,VALUE
 	  pairs

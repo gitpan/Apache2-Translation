@@ -18,7 +18,7 @@ use warnings;
 no warnings qw(uninitialized);
 undef $^W;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 # _db1 maps id=>[block, order, action, id, key, uri]
 # _db2 is a secondary index of (key,uri). It is associated with _db1
@@ -314,7 +314,7 @@ sub clear {
     $count+=($rc==0 ? 1 : 0);
   }
   die "__RETRY__\n" if( $rc==DB_LOCK_DEADLOCK );
-  die "__RETRY__\n" if( $I->extra_db->db_del('timestamp')==DB_LOCK_DEADLOCK );
+  die "__RETRY__\n" if( $I->extra_db->db_del("\ttmstmp")==DB_LOCK_DEADLOCK );
 
   return $count;
 }

@@ -16,23 +16,25 @@ BEGIN {
 Apache::TestMM::filter_args();
 Apache::TestMM::generate_script('t/TEST');
 
+my %prereq=(
+            mod_perl2=>0,
+            'DBI'=>0,
+            'DBD::SQLite'=>0,
+            'BerkeleyDB'=>0.31,
+            'Class::Member'=>1.3,
+            'Tie::Cache::LRU'=>0.21,
+            'Test::Deep'=>0,
+            'Template'=>2.15,
+            'Apache2::ModSSL'=>0,
+            'Apache2::Request'=>0,
+            'YAML'=>0,
+            'MMapDB'=>0,
+           );
+
 ModPerl::MM::WriteMakefile(
   NAME              => 'Apache2::Translation',
   VERSION_FROM      => 'lib/Apache2/Translation.pm',
-  PREREQ_PM         => {
-			mod_perl2=>0,
-			'DBI'=>0,
-			'DBD::SQLite'=>0,
-			'BerkeleyDB'=>0.31,
-			'Class::Member'=>1.3,
-			'Tie::Cache::LRU'=>0.21,
-			'Test::Deep'=>0,
-			'Template'=>2.15,
-			'Apache2::ModSSL'=>0,
-			'Apache2::Request'=>0,
-			'YAML'=>0,
-			'MMapDB'=>0,
-		       },
+  PREREQ_PM         => \%prereq,
   EXE_FILES         => [qw!script/cpprov script/diffprov!],
   ABSTRACT_FROM     => 'lib/Apache2/Translation.pod',
   AUTHOR            => 'Torsten Foertsch <torsten.foertsch@gmx.net>',

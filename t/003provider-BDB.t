@@ -2,10 +2,12 @@
 use strict;
 use warnings FATAL => 'all';
 
-use Apache::Test qw(:withtestmore);
+use Apache::Test ();            # just load it to get the version
+use version;
+use Apache::Test (version->parse(Apache::Test->VERSION)>=version->parse('1.35')
+                  ? '-withtestmore' : ':withtestmore');
 use Apache::TestUtil;
 use Apache::TestUtil qw(t_catfile);
-use Test::More;
 use Test::Deep;
 use File::Basename 'dirname';
 use File::Path ();
@@ -170,6 +172,8 @@ cmp_deeply [$ro->fetch('k1', 'u1', 1)],
 
 $o->stop;
 
+$o->begin;
 cmp_deeply( $o->timestamp(123), 0, n 'set timestamp' );
+$o->commit;
 
 cmp_deeply( $o->timestamp(), 123, n 'get timestamp' );

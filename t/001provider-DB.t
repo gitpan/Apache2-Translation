@@ -2,9 +2,11 @@
 use strict;
 use warnings FATAL => 'all';
 
-use Apache::Test qw(:withtestmore);
+use Apache::Test ();            # just load it to get the version
+use version;
+use Apache::Test (version->parse(Apache::Test->VERSION)>=version->parse('1.35')
+                  ? '-withtestmore' : ':withtestmore');
 use Apache::TestUtil;
-use Test::More;
 use Test::Deep;
 use DBI;
 use File::Basename 'dirname';
@@ -33,18 +35,21 @@ unless( defined $db and length $db ) {
 }
 t_debug "Using DB=$db USER=$user";
 my $dbh;
+my $cache_value;
 sub prepare_db {
   $dbh=DBI->connect( $db, $user, $pw,
 		     {AutoCommit=>1, PrintError=>0, RaiseError=>1} )
     or die "ERROR: Cannot connect to $db: $DBI::errstr\n";
 
   $dbh->do($dbinit) if( length $dbinit );
-  $dbh->do('DELETE FROM cache');
-  $dbh->do('INSERT INTO cache( v ) VALUES( 1 )');
   $dbh->do('DELETE FROM sequences');
   $dbh->do('DELETE FROM trans');
+  my $stmt=$dbh->prepare('SELECT MAX(v) FROM cache');
+  $stmt->execute;
+  ($cache_value)=$stmt->fetchrow_array;
+  $stmt->finish;
 
-  my $stmt=$dbh->prepare( <<'SQL' );
+  $stmt=$dbh->prepare( <<'SQL' );
 INSERT INTO trans (id, xkey, xuri, xblock, xorder, xaction) VALUES (?,?,?,?,?,?)
 SQL
 
@@ -77,13 +82,13 @@ ok $o, n 'provider object';
 ok tied(%{$o->_cache}), n 'tied cache';
 
 $o->start;
-cmp_deeply $o->_cache_version, 1, n 'cache version is 1';
+cmp_deeply $o->_cache_version, $cache_value, n 'cache version is 1';
 $o->stop;
 
 $dbh->do('UPDATE cache SET v=v+1');
 
 $o->start;
-cmp_deeply $o->_cache_version, 2, n 'cache version is 2';
+cmp_deeply $o->_cache_version, $cache_value+1, n 'cache version is 2';
 cmp_deeply [$o->fetch('k1', 'u1')],
            [['0', '0', 'a', '0'], ['0', '1', 'b', '1'], ['1', '0', 'c', '2']],
            n 'fetch uri u1';
@@ -96,7 +101,7 @@ $o->stop;
 
 $o->id=undef;	       	# check that no id is delivered if this is unset
 $o->start;
-cmp_deeply $o->_cache_version, 3, n 'cache version is 3 after another $o->start';
+cmp_deeply $o->_cache_version, $cache_value+2, n 'cache version is 3 after another $o->start';
 cmp_deeply [$o->fetch('k1', 'u1')],
            [['0', '1', 'b'], ['1', '0', 'c']],
            n 'fetch uri u1 after another $o->start';

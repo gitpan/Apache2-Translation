@@ -40,6 +40,7 @@ sub new_test_config {
   eval {$dbh->do('PRAGMA synchronous = OFF')} if( defined $dbinit );
   eval {$dbh->do('DROP TABLE cache')};
   eval {$dbh->do('CREATE TABLE cache ( v int )')};
+  eval {$dbh->do('INSERT INTO cache( v ) VALUES( 1 )')};
   eval {$dbh->do('DROP TABLE sequences')};
   eval {$dbh->do('CREATE TABLE sequences ( xname text, xvalue int )')};
   eval {$dbh->do('DROP TABLE trans')};

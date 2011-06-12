@@ -2,8 +2,10 @@
 use strict;
 use warnings FATAL => 'all';
 
-use Test::More;
-use Apache::Test qw{:withtestmore};
+use Apache::Test ();            # just load it to get the version
+use version;
+use Apache::Test (version->parse(Apache::Test->VERSION)>=version->parse('1.35')
+                  ? '-withtestmore' : ':withtestmore');
 use Apache::TestUtil;
 use Apache::TestUtil qw/t_write_shell_script t_write_perl_script/;
 use Apache::TestRequest qw{GET_BODY GET GET_RC};
@@ -76,8 +78,6 @@ sub prepare_db {
     or die "ERROR: Cannot connect to $db: $DBI::errstr\n";
 
   $dbh->do($dbinit) if( length $dbinit );
-  $dbh->do('DELETE FROM cache');
-  $dbh->do('INSERT INTO cache( v ) VALUES( 1 )');
   $dbh->do('DELETE FROM sequences');
   $dbh->do('DELETE FROM trans');
 
